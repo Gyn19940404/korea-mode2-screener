@@ -10,6 +10,7 @@ ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'stocks_data.js'; TMP=ROOT/'stocks_data.tmp.js'
 CACHE_DIR=ROOT/'.data_cache'; CACHE=CACHE_DIR/'history_cache.json.gz'
 HISTORY_DAYS=240; MAX_WORKERS=10; RETRIES=3
+MIN_TOTAL_STOCKS=2000; MIN_KOSPI=700; MIN_KOSDAQ=1200
 
 def sf(v,d=0.0):
     try:return float(v) if v is not None else d
@@ -35,7 +36,12 @@ def universe():
         d=fdr.StockListing(m).copy()
         if d is None or d.empty: raise RuntimeError(f'{m} 股票列表为空')
         d['Market']=m;fs.append(d)
-    return pd.concat(fs,ignore_index=True).drop_duplicates(subset=['Code'])
+    all_u=pd.concat(fs,ignore_index=True).drop_duplicates(subset=['Code'])
+    kc=int((all_u['Market']=='KOSPI').sum()); qc=int((all_u['Market']=='KOSDAQ').sum())
+    print(f'股票列表校验: KOSPI {kc}只 / KOSDAQ {qc}只 / 合计 {len(all_u)}只')
+    if len(all_u)<MIN_TOTAL_STOCKS or kc<MIN_KOSPI or qc<MIN_KOSDAQ:
+        raise RuntimeError(f'股票列表异常，拒绝继续：KOSPI {kc} / KOSDAQ {qc} / 合计 {len(all_u)}')
+    return all_u
 
 def fetch(code,old):
     end=datetime.now()
@@ -96,12 +102,15 @@ def main():
             c,n,m,mc=fs[f]; h=f.result()
             if h: histories[c]=h
             if i%100==0: print(f'进度 {i}/{len(fs)}，有效 {len(histories)}')
-    if len(histories)<1200: raise RuntimeError(f'成功股票只有 {len(histories)} 只，拒绝覆盖')
+    if len(histories)<MIN_TOTAL_STOCKS:
+        raise RuntimeError(f'成功股票只有 {len(histories)} 只（最低要求 {MIN_TOTAL_STOCKS}），拒绝覆盖 stocks_data.js')
     save_cache(histories)
     res=[]
     for c,n,m,mc in jobs:
         x=build(c,n,m,mc,histories.get(c,[]))
         if x:res.append(x)
+    if len(res)<MIN_TOTAL_STOCKS:
+        raise RuntimeError(f'最终有效股票只有 {len(res)} 只，拒绝覆盖 stocks_data.js')
     res.sort(key=lambda x:(x['market'],x['code']))
     latest=max(x['history'][-1][0] for x in res)
     meta={'latest_date':latest,'updated_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
