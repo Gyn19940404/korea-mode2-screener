@@ -5,8 +5,8 @@ on:
   push:
     branches: ["main"]
   schedule:
-    - cron: "10 20 * * 1-5"
-      timezone: "Asia/Seoul"
+    # GitHub cron 使用 UTC；11:10 UTC = 韩国时间 20:10
+    - cron: "10 11 * * 1-5"
 
 permissions:
   contents: read
@@ -30,8 +30,24 @@ jobs:
       - name: 读取项目
         uses: actions/checkout@v6
 
-      # 只有“手动运行”或“每天20:10自动运行”才抓行情。
-      # 普通修改 index.html 后 push，只部署网页，不再浪费5分钟重抓全市场。
+      # 普通网页修改时，不重新抓全市场。
+      # 先从当前线上网页取回“上一版完整 stocks_data.js”，防止仓库里的4只测试数据被重新部署。
+      - name: 保留线上完整股票数据
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -e
+          URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/stocks_data.js"
+          echo "读取上一版线上数据: $URL"
+          curl -fL --retry 4 --retry-delay 3 "$URL" -o stocks_data.live.js
+          SIZE=$(wc -c < stocks_data.live.js)
+          echo "线上 stocks_data.js 大小: $SIZE bytes"
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "线上数据文件过小，拒绝用它覆盖当前数据。"
+            exit 1
+          fi
+          mv stocks_data.live.js stocks_data.js
+
       - name: 恢复240日行情缓存
         if: github.event_name != 'push'
         uses: actions/cache@v4
@@ -55,6 +71,18 @@ jobs:
       - name: 获取并增量更新 KOSPI + KOSDAQ 数据
         if: github.event_name != 'push'
         run: python scripts/update_data.py
+
+      - name: 检查部署数据不是测试版
+        shell: bash
+        run: |
+          set -e
+          test -f stocks_data.js
+          SIZE=$(wc -c < stocks_data.js)
+          echo "准备部署的 stocks_data.js: $SIZE bytes"
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "stocks_data.js 过小，疑似测试数据，停止部署。"
+            exit 1
+          fi
 
       - name: 配置 GitHub Pages
         uses: actions/configure-pages@v5
