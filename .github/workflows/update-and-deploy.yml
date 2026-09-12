@@ -1,0 +1,53 @@
+name: 更新韩股数据并部署网页
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  schedule:
+    - cron: "30 16 * * 1-5"
+      timezone: "Asia/Seoul"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  update-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: 读取项目
+        uses: actions/checkout@v6
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 安装行情组件
+        run: pip install -r requirements.txt
+
+      - name: 获取 KOSPI + KOSDAQ 全市场数据
+        run: python scripts/update_data.py
+
+      - name: 配置 GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: 打包网页
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: "."
+
+      - name: 发布网页
+        id: deployment
+        uses: actions/deploy-pages@v4
