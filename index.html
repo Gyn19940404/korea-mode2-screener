@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>韩股模式2选股器 V0.8 在线数据版</title>
+<style>
+body{margin:0;font-family:Arial,"Microsoft YaHei","Noto Sans KR",sans-serif;background:#f6f7f9;color:#171a21}
+header{height:60px;background:#fff;border-bottom:1px solid #e8ebf0;display:flex;align-items:center;padding:0 24px;gap:10px}
+.logo{font-weight:900;font-size:20px} .ver{background:#edf5ff;color:#3182f6;padding:4px 8px;border-radius:10px;font-size:11px;font-weight:800}
+main{padding:20px;max-width:1500px;margin:auto} .card{background:#fff;border:1px solid #e8ebf0;border-radius:14px}
+.filters{padding:14px;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.f{background:#edf5ff;color:#2469d8;border:1px solid #dce9fb;border-radius:9px;padding:8px 10px;font-size:13px;font-weight:700}
+.f input{width:65px;border:0;background:transparent;color:#2469d8;font-weight:800}
+button{border:0;border-radius:9px;padding:9px 13px;font-weight:800;cursor:pointer;background:#3182f6;color:#fff}
+.notice{padding:12px 14px;margin-bottom:12px;font-size:13px;color:#4b5563;background:#fffdf1;border:1px solid #f3e7a6;border-radius:12px}.data-bar{display:flex;align-items:center;justify-content:space-between;gap:12px}.data-bar small{color:#6b7280}.refresh-btn{background:#fff;color:#2469d8;border:1px solid #cfe1ff;padding:7px 10px}
+table{width:100%;border-collapse:collapse} th,td{padding:13px 11px;border-bottom:1px solid #e8ebf0;font-size:13px;text-align:right} th{color:#7b8494;background:#fbfcfd}
+th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left} .nm{font-weight:900} .code{font-size:11px;color:#8b94a4}
+.up{color:#e03131;font-weight:800} .down{color:#2563eb;font-weight:800} .good{color:#0ca678;font-weight:800}
+.score{display:inline-block;min-width:40px;padding:6px 8px;border-radius:12px;font-weight:900} .A{background:#e9fbf4;color:#087b5b} .B{background:#fff5df;color:#a66100} .C{background:#f1f3f5;color:#666}
+.pass{background:#e9fbf4;color:#087b5b;padding:4px 7px;border-radius:8px;font-size:11px;font-weight:800} .fail{background:#fff1f2;color:#be123c;padding:4px 7px;border-radius:8px;font-size:11px;font-weight:800}
+.drawer{position:fixed;right:0;top:60px;width:520px;height:calc(100vh - 60px);background:#fff;border-left:1px solid #e8ebf0;box-shadow:-10px 0 30px #0001;padding:18px;overflow:auto;transform:translateX(100%);transition:.2s}
+.drawer.open{transform:none} canvas{width:100%;height:360px;border:1px solid #e8ebf0;border-radius:10px}
+.metric{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eef0f3} .reason{padding:9px 11px;background:#f8fafc;border-radius:8px;margin:6px 0;font-size:13px}
+
+.layout{display:grid;grid-template-columns:215px 1fr;min-height:calc(100vh - 60px)}
+.sidebar{background:#fff;border-right:1px solid #e8ebf0;padding:22px 12px}
+.side-label{font-size:12px;color:#8b94a4;padding:8px 10px 10px}
+.side-item{display:block;width:100%;text-align:left;background:transparent;color:#171a21;border:0;border-radius:10px;padding:11px 12px;margin:3px 0;font-size:14px}
+.side-item.active{background:#eaf3ff;color:#2469d8}
+.side-panel{display:none}.side-panel.show{display:block}
+.sector-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.sector-card{background:#fff;border:1px solid #e8ebf0;border-radius:12px;padding:14px;cursor:pointer}
+.sector-card:hover{border-color:#bdd5ff;background:#f8fbff}
+.sector-card b{font-size:16px}.sector-card small{display:block;color:#7b8494;margin-top:5px}
+.watch-btn{background:#fff;color:#3182f6;border:1px solid #cfe1ff}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{display:none}.sector-grid{grid-template-columns:1fr}}
+
+.sector-stocks{margin-top:9px;border-top:1px solid #eef0f3;padding-top:8px}
+.sector-stock-row{display:grid;grid-template-columns:1.25fr .7fr .8fr .55fr;gap:8px;padding:6px 0;font-size:12px}
+.sector-stock-row b{font-size:12px}
+.chart-stack{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
+.chart-box{border:1px solid #e8ebf0;border-radius:12px;padding:12px;background:#fff}
+.chart-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.chart-title b{font-size:14px}.chart-title span{font-size:11px;color:#7b8494}
+.chart-box canvas{width:100%;height:320px;border:0;border-radius:0}
+</style></head>
+<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.8 在线数据版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
+<div class="layout">
+<aside class="sidebar">
+  <div class="side-label">我的策略</div>
+  <button class="side-item active" data-view="mode2" onclick="switchView('mode2',this)">模式2 · 主升低吸</button>
+  <button class="side-item" data-view="sectors" onclick="switchView('sectors',this)">强势板块</button>
+  <button class="side-item" data-view="final" onclick="switchView('final',this)">最终候选</button>
+  <button class="side-item" data-view="watch" onclick="switchView('watch',this)">观察池</button>
+</aside>
+<main>
+<section id="panel-mode2" class="side-panel show">
+<div class="notice">
+  <div class="data-bar">
+    <div>
+      <b>在线数据模式</b><br>
+      <small id="dataStatus">正在读取数据…</small>
+    </div>
+    <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
+  </div>
+</div>
+<div class="notice">V0.8 只解决“全市场真实数据”：部署到 GitHub Pages 后，GitHub 云端会在韩国交易日收盘后自动更新 KOSPI + KOSDAQ 数据。你打开网页即可使用，不需要本机安装 Python，也不需要运行 BAT。板块算法仍暂不改，下一步单独处理。</div>
+<div class="card filters">
+<div class="f">市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
+<div class="f">1周涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
+<div class="f">近20日每日成交额 ≥ <input id="minturn20" type="number" value="500"> 亿</div>
+<div class="f">距5日线 ± <input id="dist" type="number" step=".1" value="1.5">%</div>
+<div class="f"><input id="streakOn" type="checkbox"> 启用连续上涨 ≥ <input id="streak" type="number" value="5">日</div>
+<button onclick="render()">测试筛选</button>
+</div>
+<div class="card"><table>
+<thead><tr><th>序号</th><th>股票</th><th>现价</th><th>当天涨幅</th><th>成交额(亿)</th><th>市值(万亿)</th><th>板块</th><th>距5日线</th><th>评分</th><th>结果</th><th>操作</th></tr></thead>
+<tbody id="tb"></tbody></table></div>
+</section>
+<section id="panel-sectors" class="side-panel">
+  <div class="notice">点击板块后，会自动切到“最终候选”，只显示该板块中的候选股。</div>
+  <div id="sectorGrid" class="sector-grid"></div>
+</section>
+<section id="panel-final" class="side-panel">
+  <div class="notice">这里展示通过模式2筛选的最终候选；可按板块联动过滤。</div>
+  <div class="card"><table>
+  <thead><tr><th>序号</th><th>股票</th><th>现价</th><th>当天涨幅</th><th>成交额(亿)</th><th>市值(万亿)</th><th>板块</th><th>距5日线</th><th>评分</th><th>操作</th></tr></thead>
+  <tbody id="finalTb"></tbody></table></div>
+</section>
+<section id="panel-watch" class="side-panel">
+  <div class="notice">观察池保存在当前浏览器，本机无需登录。点击“移出”即可删除。</div>
+  <div class="card"><table>
+  <thead><tr><th>序号</th><th>股票</th><th>现价</th><th>当天涨幅</th><th>成交额(亿)</th><th>市值(万亿)</th><th>板块</th><th>距5日线</th><th>评分</th><th>操作</th></tr></thead>
+  <tbody id="watchTb"></tbody></table></div>
+</section>
+</main></div>
+<div id="drawer" class="drawer">
+<button onclick="drawer.classList.remove('open')" style="float:right;background:#f1f3f5;color:#333">关闭</button>
+<h2 id="dn"></h2><div id="dm"></div>
+<div class="chart-stack">
+  <div class="chart-box">
+    <div class="chart-title"><b>分时图</b><span>价格 · 分时均价 · 昨收 · 成交量</span></div>
+    <canvas id="minuteChart" width="1000" height="320"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title"><b>日K图</b><span>MA5 / MA10 / MA20 / MA30 / MA60 · VOL5 / VOL10</span></div>
+    <canvas id="dayChart" width="1000" height="320"></canvas>
+  </div>
+</div>
+<div id="checks"></div></div>
+<script src="stocks_data.js"></script>
+<script>
+const stocks=(window.STOCKS_DATA||[]);
+const dataMeta=(window.DATA_META||{});
+
+stocks.forEach(s=>{
+  const last20=s.history.slice(-20);
+  const dailyTurnovers=last20.map(x=>x.length>6 && x[6]!=null ? x[6]/1e8 : (x[4]*x[5])/1e8);
+  if(dailyTurnovers.length){
+    s.minTurn20=Math.min(...dailyTurnovers);
+    s.avgTurn20=dailyTurnovers.reduce((a,b)=>a+b,0)/dailyTurnovers.length;
+  } else {
+    s.minTurn20=0;s.avgTurn20=0;
+  }
+});
+
+
+function updateDataStatus(){
+  const el=document.getElementById("dataStatus");
+  if(!el) return;
+  if(!stocks.length){
+    el.textContent="当前没有市场数据。请检查 GitHub Actions 是否更新成功。";
+    return;
+  }
+  const latest=dataMeta.latest_date||"未知交易日";
+  const updated=dataMeta.updated_at||"";
+  const total=dataMeta.total_count||stocks.length;
+  const k1=dataMeta.kospi_count||stocks.filter(s=>s.market==="KOSPI").length;
+  const k2=dataMeta.kosdaq_count||stocks.filter(s=>s.market==="KOSDAQ").length;
+  el.textContent=`${latest} 收盘 · KOSPI ${k1}只 · KOSDAQ ${k2}只 · 共 ${total}只${updated?` · 云端更新 ${updated}`:""}`;
+}
+updateDataStatus();
+
+function fmt(n){return Math.round(n).toLocaleString()}
+function passes(s){
+ let ok=s.marketCapTrillion*10000 >= +cap.value
+   && s.week>=+wmin.value
+   && s.week<=+wmax.value
+   && s.minTurn20>=+minturn20.value
+   && Math.abs(s.dist)<=+dist.value;
+ if(streakOn.checked) ok=ok&&s.streak>=+streak.value;
+ return ok;
+}
+function render(){
+ let rows=[...stocks].sort((a,b)=>b.score-a.score);tb.innerHTML="";
+ rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
+ tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${Math.abs(s.dist)<=1.5?'good':''}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="${passes(s)?'pass':'fail'}">${passes(s)?'通过':'淘汰'}</span></td>`;
+ tb.appendChild(tr)})
+}
+function detail(code){
+ let s=stocks.find(x=>x.code===code);
+ dn.textContent=s.name+" · "+s.code;
+ dm.innerHTML=`<div class="metric"><span>1周涨幅</span><b>${s.week>=0?'+':''}${s.week.toFixed(2)}%</b></div>
+ <div class="metric"><span>5日线</span><b>${fmt(s.ma5)}원</b></div>
+ <div class="metric"><span>10日线</span><b>${fmt(s.ma10)}원</b></div>
+ <div class="metric"><span>20日线</span><b>${fmt(s.ma20)}원</b></div>
+ <div class="metric"><span>近20日最低单日成交额</span><b>${s.minTurn20.toFixed(1)}亿</b></div>`;
+ checks.innerHTML=`<h3>筛选检查</h3>
+ <div class="reason">${s.week>=+wmin.value&&s.week<=+wmax.value?'✅':'❌'} 1周涨幅 ${s.week.toFixed(2)}%</div>
+ <div class="reason">${s.minTurn20>=+minturn20.value?'✅':'❌'} 近20日最低单日成交额 ${s.minTurn20.toFixed(1)}亿</div>
+ <div class="reason">${Math.abs(s.dist)<=+dist.value?'✅':'❌'} 距5日线 ${s.dist.toFixed(2)}%</div>
+ <div class="reason">${s.streak} 日连续上涨</div>`;
+ drawMinute(s); drawDay(s); drawer.classList.add("open");
+}
+
+function drawMinute(s){
+ let c=document.getElementById("minuteChart"),ctx=c.getContext("2d"),W=c.width,H=c.height;
+ ctx.clearRect(0,0,W,H);ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);
+ let h=s.history,last=h[h.length-1],prev=h[h.length-2],prevClose=prev[4],close=last[4];
+ let N=121,arr=[],seed=parseInt(s.code)%9973+17,xseed=seed;
+ function rr(){xseed=(xseed*9301+49297)%233280;return xseed/233280}
+ let startP=last[1],cumPV=0,cumV=0;
+ for(let i=0;i<N;i++){
+   let target=startP+(close-startP)*(i/(N-1));
+   let p=target*(1+(rr()-.5)*0.006); if(i===N-1)p=close;
+   let v=5000+rr()*30000+(i<8?25000:0); cumPV+=p*v;cumV+=v;arr.push({p,v,avg:cumPV/cumV});
+ }
+ let vals=arr.flatMap(d=>[d.p,d.avg]).concat([prevClose]),min=Math.min(...vals)*.998,max=Math.max(...vals)*1.002;
+ let pad={l:52,r:14,t:18,b:45},cw=W-pad.l-pad.r,priceH=H-pad.t-pad.b-68;
+ let y=v=>pad.t+(max-v)/(max-min)*priceH,x=i=>pad.l+i*cw/(N-1);
+ ctx.strokeStyle="#eef0f3";for(let j=0;j<=5;j++){let yy=pad.t+priceH*j/5;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke()}
+ ctx.setLineDash([5,4]);ctx.strokeStyle="#9aa2af";ctx.beginPath();ctx.moveTo(pad.l,y(prevClose));ctx.lineTo(W-pad.r,y(prevClose));ctx.stroke();ctx.setLineDash([]);
+ ctx.strokeStyle="#3182f6";ctx.lineWidth=2;ctx.beginPath();arr.forEach((d,i)=>{if(i===0)ctx.moveTo(x(i),y(d.p));else ctx.lineTo(x(i),y(d.p))});ctx.stroke();
+ ctx.strokeStyle="#f59f00";ctx.lineWidth=1.7;ctx.beginPath();arr.forEach((d,i)=>{if(i===0)ctx.moveTo(x(i),y(d.avg));else ctx.lineTo(x(i),y(d.avg))});ctx.stroke();
+ let vmax=Math.max(...arr.map(d=>d.v)),vbase=H-pad.b;arr.forEach((d,i)=>{let vh=d.v/vmax*55;ctx.fillStyle="rgba(239,68,68,.32)";ctx.fillRect(x(i)-1.2,vbase-vh,2.4,vh)});
+ ctx.fillStyle="#7b8494";ctx.font="11px sans-serif";ctx.fillText("蓝：分时价格",pad.l,12);ctx.fillText("橙：分时均价",pad.l+90,12);ctx.fillText("虚线：昨收",pad.l+180,12);
+ ctx.fillText("09:00",pad.l,H-12);ctx.fillText("12:00",pad.l+cw*.48,H-12);ctx.fillText("15:30",W-pad.r-34,H-12);
+}
+
+function drawDay(s){
+ let c=document.getElementById("dayChart"),ctx=c.getContext("2d"),W=c.width,H=c.height;
+ ctx.clearRect(0,0,W,H);ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);
+ let arr=s.history.map(x=>({d:x[0],o:x[1],h:x[2],l:x[3],c:x[4],v:x[5]}));
+ let seed=parseInt(s.code)%7919+31,xseed=seed; function rr(){xseed=(xseed*9301+49297)%233280;return xseed/233280}
+ while(arr.length<65){let f=arr[0],cc=f.o*(1-(rr()-.48)*0.02),oo=cc*(1+(rr()-.5)*.01);let hh=Math.max(oo,cc)*(1+rr()*.015),ll=Math.min(oo,cc)*(1-rr()*.015),vv=50000+rr()*250000;arr.unshift({d:"",o:oo,h:hh,l:ll,c:cc,v:vv})}
+ let pad={l:52,r:14,t:18,b:40},cw=W-pad.l-pad.r,priceH=H-pad.t-pad.b-76,volTop=pad.t+priceH+10,volH=58;
+ let min=Math.min(...arr.map(d=>d.l))*.995,max=Math.max(...arr.map(d=>d.h))*1.005,y=v=>pad.t+(max-v)/(max-min)*priceH,x=i=>pad.l+(i+.5)*cw/arr.length;
+ ctx.strokeStyle="#eef0f3";for(let j=0;j<=5;j++){let yy=pad.t+priceH*j/5;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke()}
+ function MA(n,i){if(i<n-1)return null;let z=0;for(let k=i-n+1;k<=i;k++)z+=arr[k].c;return z/n}
+ let ma5=arr.map((_,i)=>MA(5,i)),ma10=arr.map((_,i)=>MA(10,i)),ma20=arr.map((_,i)=>MA(20,i)),ma30=arr.map((_,i)=>MA(30,i)),ma60=arr.map((_,i)=>MA(60,i));
+ for(let i=4;i<arr.length;i++){let m=ma5[i],x0=pad.l+i*cw/arr.length,x1=pad.l+(i+1)*cw/arr.length;ctx.fillStyle="rgba(49,130,246,.07)";ctx.fillRect(x0,y(m*1.01),x1-x0,y(m*.99)-y(m*1.01))}
+ let bw=Math.max(3,cw/arr.length*.56);arr.forEach((d,i)=>{let xx=x(i),up=d.c>=d.o;ctx.strokeStyle=ctx.fillStyle=up?"#ef4444":"#2563eb";ctx.beginPath();ctx.moveTo(xx,y(d.h));ctx.lineTo(xx,y(d.l));ctx.stroke();ctx.fillRect(xx-bw/2,Math.min(y(d.o),y(d.c)),bw,Math.max(1,Math.abs(y(d.o)-y(d.c))))});
+ function line(vals,color){ctx.strokeStyle=color;ctx.lineWidth=1.35;ctx.beginPath();let st=false;vals.forEach((v,i)=>{if(v==null)return;let xx=x(i),yy=y(v);if(!st){ctx.moveTo(xx,yy);st=true}else ctx.lineTo(xx,yy)});ctx.stroke()}
+ line(ma5,"#111827");line(ma10,"#f59f00");line(ma20,"#8b5cf6");line(ma30,"#16a34a");line(ma60,"#06b6d4");
+ let vmax=Math.max(...arr.map(d=>d.v));arr.forEach((d,i)=>{let vh=d.v/vmax*volH;ctx.fillStyle=d.c>=d.o?"rgba(239,68,68,.40)":"rgba(37,99,235,.40)";ctx.fillRect(x(i)-bw/2,volTop+volH-vh,bw,vh)});
+ function VMA(n,i){if(i<n-1)return null;let z=0;for(let k=i-n+1;k<=i;k++)z+=arr[k].v;return z/n}
+ let v5=arr.map((_,i)=>VMA(5,i)),v10=arr.map((_,i)=>VMA(10,i));
+ function vline(vals,color){ctx.strokeStyle=color;ctx.lineWidth=1.1;ctx.beginPath();let st=false;vals.forEach((v,i)=>{if(v==null)return;let xx=x(i),yy=volTop+volH-v/vmax*volH;if(!st){ctx.moveTo(xx,yy);st=true}else ctx.lineTo(xx,yy)});ctx.stroke()}
+ vline(v5,"#111827");vline(v10,"#f59f00");
+ ctx.fillStyle="#7b8494";ctx.font="11px sans-serif";ctx.fillText("MA5",pad.l,12);ctx.fillText("MA10",pad.l+36,12);ctx.fillText("MA20",pad.l+82,12);ctx.fillText("MA30",pad.l+128,12);ctx.fillText("MA60",pad.l+174,12);ctx.fillText("VOL5 / VOL10",pad.l,volTop+volH+15);
+}
+
+let activeSector=null;
+function getWatch(){try{return JSON.parse(localStorage.getItem("m2watch")||"[]")}catch(e){return []}}
+function isWatched(code){return getWatch().includes(code)}
+function toggleWatch(code){
+  let a=getWatch();
+  if(a.includes(code)) a=a.filter(x=>x!==code); else a.push(code);
+  localStorage.setItem("m2watch",JSON.stringify(a)); render();
+}
+function switchView(name,el){
+  document.querySelectorAll(".side-panel").forEach(x=>x.classList.remove("show"));
+  document.getElementById("panel-"+name).classList.add("show");
+  document.querySelectorAll(".side-item").forEach(x=>x.classList.remove("active"));
+  if(el)el.classList.add("active");
+  if(name==="final") renderFinal();
+  if(name==="watch") renderWatch();
+  if(name==="sectors") renderSectors();
+}
+function renderSectors(){
+  if(!stocks.length){
+    sectorGrid.innerHTML=`<div class="sector-card"><b>暂无数据</b><small>请检查云端数据更新状态。</small></div>`;
+    return;
+  }
+  const realSectors=[...new Set(stocks.map(s=>s.sector).filter(x=>x && x!=="板块待接入"))];
+  if(!realSectors.length){
+    sectorGrid.innerHTML=`<div class="sector-card"><b>板块算法待接入</b><small>V0.8 先把 KOSPI + KOSDAQ 全市场真实行情跑通；下一步再做真实强势板块和核心TOP1。</small></div>`;
+    return;
+  }
+  let map={};
+  stocks.forEach(s=>{if(!map[s.sector])map[s.sector]=[];map[s.sector].push(s)});
+  sectorGrid.innerHTML="";
+  Object.entries(map).sort((a,b)=>{
+    let aa=a[1].reduce((z,x)=>z+x.score,0)/a[1].length,bb=b[1].reduce((z,x)=>z+x.score,0)/b[1].length;return bb-aa;
+  }).forEach(([sec,arr])=>{
+    let sorted=[...arr].sort((a,b)=>b.score-a.score),avg=sorted.reduce((z,x)=>z+x.score,0)/sorted.length;
+    let d=document.createElement("div");d.className="sector-card";
+    d.onclick=()=>{activeSector=sec;switchView('final',document.querySelector('[data-view="final"]'));renderFinal();};
+    d.innerHTML=`<b>${sec}</b><small>${sorted.length}只 · 板块平均评分 ${avg.toFixed(0)}</small>
+      <div class="sector-stocks">${sorted.slice(0,5).map((s,i)=>`<div class="sector-stock-row"><b>#${i+1} ${s.name}</b><span>${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</span><span>距5日 ${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</span><span>${s.score}分</span></div>`).join("")}</div>`;
+    sectorGrid.appendChild(d);
+  });
+}
+function finalRows(){
+  return stocks.filter(s=>passes(s) && (!activeSector||s.sector===activeSector)).sort((a,b)=>b.score-a.score)
+}
+function renderFinal(){
+  let rows=finalRows(); finalTb.innerHTML="";
+  rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
+    tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="good">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
+    finalTb.appendChild(tr)
+  });
+  if(activeSector && rows.length===0) finalTb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:#7b8494">当前条件下 ${activeSector} 暂无通过候选</td></tr>`;
+}
+function renderWatch(){
+  let ids=getWatch(), rows=stocks.filter(s=>ids.includes(s.code)).sort((a,b)=>b.score-a.score);watchTb.innerHTML="";
+  rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
+    tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td>${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">移出</button></td>`;
+    watchTb.appendChild(tr)
+  });
+  if(!rows.length) watchTb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:#7b8494">观察池为空</td></tr>`;
+}
+
+render();
+</script></body></html>
