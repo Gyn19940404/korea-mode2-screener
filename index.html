@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>韩股模式2选股器 V0.8 在线数据版</title>
+<title>韩股模式2选股器 V0.8.2 排序版</title>
 <style>
 body{margin:0;font-family:Arial,"Microsoft YaHei","Noto Sans KR",sans-serif;background:#f6f7f9;color:#171a21}
 header{height:60px;background:#fff;border-bottom:1px solid #e8ebf0;display:flex;align-items:center;padding:0 24px;gap:10px}
@@ -13,6 +13,7 @@ button{border:0;border-radius:9px;padding:9px 13px;font-weight:800;cursor:pointe
 .notice{padding:12px 14px;margin-bottom:12px;font-size:13px;color:#4b5563;background:#fffdf1;border:1px solid #f3e7a6;border-radius:12px}.data-bar{display:flex;align-items:center;justify-content:space-between;gap:12px}.data-bar small{color:#6b7280}.refresh-btn{background:#fff;color:#2469d8;border:1px solid #cfe1ff;padding:7px 10px}
 table{width:100%;border-collapse:collapse} th,td{padding:13px 11px;border-bottom:1px solid #e8ebf0;font-size:13px;text-align:right} th{color:#7b8494;background:#fbfcfd}
 th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left} .nm{font-weight:900} .code{font-size:11px;color:#8b94a4}
+.sort-th{user-select:none;white-space:nowrap;cursor:pointer;transition:color .15s}.sort-th:hover{color:#3b4657}.sort-label{display:inline-flex;align-items:center;gap:5px}.sort-arrow{font-size:12px;color:#c2c8d0;font-weight:900;line-height:1}.sort-th.active{color:#313b49}.sort-th.active .sort-arrow{color:#313b49}
 .up{color:#e03131;font-weight:800} .down{color:#2563eb;font-weight:800} .good{color:#0ca678;font-weight:800}
 .score{display:inline-block;min-width:40px;padding:6px 8px;border-radius:12px;font-weight:900} .A{background:#e9fbf4;color:#087b5b} .B{background:#fff5df;color:#a66100} .C{background:#f1f3f5;color:#666}
 .pass{background:#e9fbf4;color:#087b5b;padding:4px 7px;border-radius:8px;font-size:11px;font-weight:800} .fail{background:#fff1f2;color:#be123c;padding:4px 7px;border-radius:8px;font-size:11px;font-weight:800}
@@ -42,7 +43,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 .chart-title b{font-size:14px}.chart-title span{font-size:11px;color:#7b8494}
 .chart-box canvas{width:100%;height:320px;border:0;border-radius:0}
 </style></head>
-<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.8 在线数据版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
+<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.8.2 排序版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
 <div class="layout">
 <aside class="sidebar">
   <div class="side-label">我的策略</div>
@@ -62,7 +63,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.8 只解决“全市场真实数据”：部署到 GitHub Pages 后，GitHub 云端会在韩国交易日收盘后自动更新 KOSPI + KOSDAQ 数据。你打开网页即可使用，不需要本机安装 Python，也不需要运行 BAT。板块算法仍暂不改，下一步单独处理。</div>
+<div class="notice">V0.8.2 已加入 Toss 风格可点击排序表头；全市场真实数据：部署到 GitHub Pages 后，GitHub 云端会在韩国交易日收盘后自动更新 KOSPI + KOSDAQ 数据。你打开网页即可使用，不需要本机安装 Python，也不需要运行 BAT。板块算法仍暂不改，下一步单独处理。</div>
 <div class="card filters">
 <div class="f">市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
 <div class="f">1周涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
@@ -72,7 +73,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 <button onclick="render()">测试筛选</button>
 </div>
 <div class="card"><table>
-<thead><tr><th>序号</th><th>股票</th><th>现价</th><th>当天涨幅</th><th>成交额(亿)</th><th>市值(万亿)</th><th>板块</th><th>距5日线</th><th>评分</th><th>结果</th><th>操作</th></tr></thead>
+<thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="mode2" data-key="price" onclick="setSort('mode2','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="daychg" onclick="setSort('mode2','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="turnover" onclick="setSort('mode2','turnover')"><span class="sort-label">成交额(亿) <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="marketCapTrillion" onclick="setSort('mode2','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="mode2" data-key="dist" onclick="setSort('mode2','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="mode2" data-key="score" onclick="setSort('mode2','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>结果</th><th>操作</th></tr></thead>
 <tbody id="tb"></tbody></table></div>
 </section>
 <section id="panel-sectors" class="side-panel">
@@ -82,13 +83,13 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 <section id="panel-final" class="side-panel">
   <div class="notice">这里展示通过模式2筛选的最终候选；可按板块联动过滤。</div>
   <div class="card"><table>
-  <thead><tr><th>序号</th><th>股票</th><th>现价</th><th>当天涨幅</th><th>成交额(亿)</th><th>市值(万亿)</th><th>板块</th><th>距5日线</th><th>评分</th><th>操作</th></tr></thead>
+  <thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="final" data-key="price" onclick="setSort('final','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="final" data-key="daychg" onclick="setSort('final','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="final" data-key="turnover" onclick="setSort('final','turnover')"><span class="sort-label">成交额(亿) <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="final" data-key="marketCapTrillion" onclick="setSort('final','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="final" data-key="dist" onclick="setSort('final','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="final" data-key="score" onclick="setSort('final','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>操作</th></tr></thead>
   <tbody id="finalTb"></tbody></table></div>
 </section>
 <section id="panel-watch" class="side-panel">
   <div class="notice">观察池保存在当前浏览器，本机无需登录。点击“移出”即可删除。</div>
   <div class="card"><table>
-  <thead><tr><th>序号</th><th>股票</th><th>现价</th><th>当天涨幅</th><th>成交额(亿)</th><th>市值(万亿)</th><th>板块</th><th>距5日线</th><th>评分</th><th>操作</th></tr></thead>
+  <thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="watch" data-key="price" onclick="setSort('watch','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="watch" data-key="daychg" onclick="setSort('watch','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="watch" data-key="turnover" onclick="setSort('watch','turnover')"><span class="sort-label">成交额(亿) <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="watch" data-key="marketCapTrillion" onclick="setSort('watch','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="watch" data-key="dist" onclick="setSort('watch','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="watch" data-key="score" onclick="setSort('watch','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>操作</th></tr></thead>
   <tbody id="watchTb"></tbody></table></div>
 </section>
 </main></div>
@@ -149,10 +150,43 @@ function passes(s){
  if(streakOn.checked) ok=ok&&s.streak>=+streak.value;
  return ok;
 }
+const sortState={
+  mode2:{key:"score",dir:"desc"},
+  final:{key:"score",dir:"desc"},
+  watch:{key:"score",dir:"desc"}
+};
+function sortedRows(rows,view){
+  const st=sortState[view]||{key:"score",dir:"desc"};
+  const mul=st.dir==="asc"?1:-1;
+  return [...rows].sort((a,b)=>{
+    let av=a[st.key],bv=b[st.key];
+    if(av==null) av=-Infinity;if(bv==null) bv=-Infinity;
+    if(typeof av==="string") return av.localeCompare(bv,"ko")*mul;
+    return (av-bv)*mul;
+  });
+}
+function updateSortHeaders(view){
+  document.querySelectorAll(`th.sort-th[data-view="${view}"]`).forEach(th=>{
+    const active=th.dataset.key===sortState[view].key;
+    th.classList.toggle("active",active);
+    const a=th.querySelector(".sort-arrow");
+    if(a) a.textContent=active?(sortState[view].dir==="desc"?"↓":"↑"):"↕";
+  });
+}
+function setSort(view,key){
+  const st=sortState[view];
+  if(st.key===key) st.dir=st.dir==="desc"?"asc":"desc";
+  else {st.key=key;st.dir="desc";}
+  updateSortHeaders(view);
+  if(view==="mode2") render();
+  if(view==="final") renderFinal();
+  if(view==="watch") renderWatch();
+}
 function render(){
- let rows=[...stocks].sort((a,b)=>b.score-a.score);tb.innerHTML="";
+ let rows=sortedRows(stocks,"mode2");tb.innerHTML="";
+ updateSortHeaders("mode2");
  rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
- tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${Math.abs(s.dist)<=1.5?'good':''}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="${passes(s)?'pass':'fail'}">${passes(s)?'通过':'淘汰'}</span></td>`;
+ tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${Math.abs(s.dist)<=1.5?'good':''}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="${passes(s)?'pass':'fail'}">${passes(s)?'通过':'淘汰'}</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
  tb.appendChild(tr)})
 }
 function detail(code){
@@ -260,10 +294,11 @@ function renderSectors(){
   });
 }
 function finalRows(){
-  return stocks.filter(s=>passes(s) && (!activeSector||s.sector===activeSector)).sort((a,b)=>b.score-a.score)
+  return stocks.filter(s=>passes(s) && (!activeSector||s.sector===activeSector))
 }
 function renderFinal(){
-  let rows=finalRows(); finalTb.innerHTML="";
+  let rows=sortedRows(finalRows(),"final"); finalTb.innerHTML="";
+  updateSortHeaders("final");
   rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
     tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="good">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
     finalTb.appendChild(tr)
@@ -271,7 +306,8 @@ function renderFinal(){
   if(activeSector && rows.length===0) finalTb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:#7b8494">当前条件下 ${activeSector} 暂无通过候选</td></tr>`;
 }
 function renderWatch(){
-  let ids=getWatch(), rows=stocks.filter(s=>ids.includes(s.code)).sort((a,b)=>b.score-a.score);watchTb.innerHTML="";
+  let ids=getWatch(), rows=sortedRows(stocks.filter(s=>ids.includes(s.code)),"watch");watchTb.innerHTML="";
+  updateSortHeaders("watch");
   rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
     tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td>${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">移出</button></td>`;
     watchTb.appendChild(tr)
