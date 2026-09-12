@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>韩股模式2选股器 V0.8.2 排序版</title>
+<title>韩股模式2选股器 V0.9.5 可勾选筛选版</title>
 <style>
 body{margin:0;font-family:Arial,"Microsoft YaHei","Noto Sans KR",sans-serif;background:#f6f7f9;color:#171a21}
 header{height:60px;background:#fff;border-bottom:1px solid #e8ebf0;display:flex;align-items:center;padding:0 24px;gap:10px}
@@ -8,7 +8,7 @@ header{height:60px;background:#fff;border-bottom:1px solid #e8ebf0;display:flex;
 main{padding:20px;max-width:1500px;margin:auto} .card{background:#fff;border:1px solid #e8ebf0;border-radius:14px}
 .filters{padding:14px;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .f{background:#edf5ff;color:#2469d8;border:1px solid #dce9fb;border-radius:9px;padding:8px 10px;font-size:13px;font-weight:700}
-.f input{width:65px;border:0;background:transparent;color:#2469d8;font-weight:800}
+.f input{width:65px;border:0;background:transparent;color:#2469d8;font-weight:800}.f input[type="checkbox"]{width:auto;margin:0 6px 0 0;accent-color:#3182f6}.f.filter-off{opacity:.48;background:#f5f7fa;color:#7b8494}.f.filter-off input{color:#7b8494}
 button{border:0;border-radius:9px;padding:9px 13px;font-weight:800;cursor:pointer;background:#3182f6;color:#fff}
 .notice{padding:12px 14px;margin-bottom:12px;font-size:13px;color:#4b5563;background:#fffdf1;border:1px solid #f3e7a6;border-radius:12px}.data-bar{display:flex;align-items:center;justify-content:space-between;gap:12px}.data-bar small{color:#6b7280}.refresh-btn{background:#fff;color:#2469d8;border:1px solid #cfe1ff;padding:7px 10px}
 table{width:100%;border-collapse:collapse} th,td{padding:13px 11px;border-bottom:1px solid #e8ebf0;font-size:13px;text-align:right} th{color:#7b8494;background:#fbfcfd}
@@ -46,7 +46,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 .chart-box{position:relative}
 .chart-tip{position:absolute;display:none;pointer-events:none;z-index:20;background:rgba(17,24,39,.94);color:#fff;padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.55;box-shadow:0 4px 16px rgba(0,0,0,.18);white-space:nowrap}
 </style></head>
-<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.8.2 排序版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
+<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.9.5 可勾选筛选版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
 <div class="layout">
 <aside class="sidebar">
   <div class="side-label">我的策略</div>
@@ -66,13 +66,13 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.9.1：筛选条件已改为实时生效，主表只显示通过当前条件的股票；历史K线目标扩展为240个交易日。板块算法与真实分时仍待接入。</div>
+<div class="notice">V0.9.5：所有筛选条件均可独立勾选启用；未勾选的条件完全不参与筛选。距5日线改为可分别设置下限与上限。</div>
 <div class="card filters">
-<div class="f">市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
-<div class="f">近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
-<div class="f">近 <input id="turnDays" type="number" min="1" max="240" value="20"> 日每日成交额 ≥ <input id="minturn20" type="number" value="500"> 亿</div>
-<div class="f">距5日线 ± <input id="dist" type="number" step=".1" value="1.5">%</div>
-<div class="f"><input id="streakOn" type="checkbox"> 启用连续上涨 ≥ <input id="streak" type="number" value="5">日</div>
+<div class="f" data-filter="capOn"><input id="capOn" type="checkbox" checked>市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
+<div class="f" data-filter="chgOn"><input id="chgOn" type="checkbox" checked>近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
+<div class="f" data-filter="turnOn"><input id="turnOn" type="checkbox" checked>近 <input id="turnDays" type="number" min="1" max="240" value="20"> 日每日成交额 ≥ <input id="minturn20" type="number" value="500"> 亿</div>
+<div class="f" data-filter="distOn"><input id="distOn" type="checkbox" checked>距5日线 <input id="distMin" type="number" step=".1" value="-1.5">% ～ <input id="distMax" type="number" step=".1" value="1.5">%</div>
+<div class="f" data-filter="streakOn"><input id="streakOn" type="checkbox">连续上涨 ≥ <input id="streak" type="number" value="5">日</div>
 <button onclick="render()">刷新筛选</button><div class="f" style="background:#fff;color:#5b6472">候选 <b id="candidateCount">0</b> 只</div>
 </div>
 <div class="card"><table>
@@ -101,12 +101,12 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 <h2 id="dn"></h2><div id="dm"></div>
 <div class="chart-stack">
   <div class="chart-box">
-    <div class="chart-title"><b>分时图</b><span>价格 · 分时均价 · 昨收 · 成交量</span></div>
+    <div class="chart-title"><b>今日收盘分时</b><span><span style="color:#3182f6;font-weight:700">价格</span> · <span style="color:#f59f00;font-weight:700">分时均价</span> · <span style="color:#94a3b8;font-weight:700">昨收</span> · <span style="color:#64748b;font-weight:700">成交量</span></span></div>
     <div style="display:flex;gap:6px;margin-bottom:8px"><button class="watch-btn" onclick="setMinuteMode(1)">1分</button><button class="watch-btn" onclick="setMinuteMode(5)">5分</button><button class="watch-btn" onclick="resetMinuteView()">回到全天</button></div>
     <canvas id="minuteChart" width="1000" height="320"></canvas><div id="minuteTip" class="chart-tip"></div>
   </div>
   <div class="chart-box">
-    <div class="chart-title"><b>日K图</b><span>MA5 / MA10 / MA20 / MA30 / MA60 / MA120 · VOL5 / VOL10</span></div>
+    <div class="chart-title"><b>日K图</b><span><span style="color:#111827;font-weight:700">MA5</span> / <span style="color:#f59f00;font-weight:700">MA10</span> / <span style="color:#8b5cf6;font-weight:700">MA20</span> / <span style="color:#16a34a;font-weight:700">MA30</span> / <span style="color:#06b6d4;font-weight:700">MA60</span> / <span style="color:#d946ef;font-weight:700">MA120</span> · <span style="color:#64748b">VOL5 / VOL10</span></span></div>
     <div style="display:flex;gap:6px;margin-bottom:8px"><button class="watch-btn" onclick="setDayRange(20)">20日</button><button class="watch-btn" onclick="setDayRange(60)">60日</button><button class="watch-btn" onclick="setDayRange(120)">120日</button><button class="watch-btn" onclick="setDayRange(240)">240日</button><button class="watch-btn" onclick="resetDayView()">最新</button></div>
     <canvas id="dayChart" width="1000" height="320"></canvas><div id="dayTip" class="chart-tip"></div>
   </div>
@@ -164,21 +164,37 @@ updateDataStatus();
 function fmt(n){return Math.round(n).toLocaleString()}
 const $=id=>document.getElementById(id);
 function num(id,fallback=0){const v=parseFloat($(id)?.value);return Number.isFinite(v)?v:fallback;}
+function enabled(id){return !!$(id)?.checked;}
+function distBounds(){
+ let lo=num("distMin",-1.5), hi=num("distMax",1.5);
+ if(lo>hi) [lo,hi]=[hi,lo];
+ return [lo,hi];
+}
 function passes(s){
  const capYi=(Number(s.marketCapTrillion)||0)*10000; // 1万亿韩元 = 10000亿韩元
  const chg=periodChange(s,num("chgDays",5));
  const minTurn=minTurnForDays(s,num("turnDays",20));
- let ok=capYi >= num("cap")
-   && Number.isFinite(chg) && chg>=num("wmin")
-   && chg<=num("wmax")
-   && Number.isFinite(minTurn) && minTurn>=num("minturn20")
-   && Math.abs(Number(s.dist))<=num("dist");
- if($("streakOn").checked) ok=ok&&Number(s.streak)>=num("streak");
- return ok;
+ const [distLo,distHi]=distBounds();
+ if(enabled("capOn") && capYi < num("cap")) return false;
+ if(enabled("chgOn") && (!Number.isFinite(chg) || chg<num("wmin") || chg>num("wmax"))) return false;
+ if(enabled("turnOn") && (!Number.isFinite(minTurn) || minTurn<num("minturn20"))) return false;
+ if(enabled("distOn") && (Number(s.dist)<distLo || Number(s.dist)>distHi)) return false;
+ if(enabled("streakOn") && Number(s.streak)<num("streak")) return false;
+ return true;
 }
-["cap","chgDays","wmin","wmax","turnDays","minturn20","dist","streak","streakOn"].forEach(id=>{
- const el=$(id); if(el){el.addEventListener("input",()=>{render();renderFinal();});el.addEventListener("change",()=>{render();renderFinal();});}
+function updateFilterStyles(){
+ document.querySelectorAll('.f[data-filter]').forEach(box=>{
+   const cb=$(box.dataset.filter);
+   box.classList.toggle('filter-off', !!cb && !cb.checked);
+ });
+}
+["capOn","cap","chgOn","chgDays","wmin","wmax","turnOn","turnDays","minturn20","distOn","distMin","distMax","streak","streakOn"].forEach(id=>{
+ const el=$(id); if(el){
+   const rerender=()=>{updateFilterStyles();render();renderFinal();};
+   el.addEventListener("input",rerender);el.addEventListener("change",rerender);
+ }
 });
+updateFilterStyles();
 const sortState={
   mode2:{key:"score",dir:"desc"},
   final:{key:"score",dir:"desc"},
@@ -216,7 +232,7 @@ function render(){
  $("candidateCount").textContent=rows.length;
  updateSortHeaders("mode2");
  rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
- tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${Math.abs(s.dist)<=1.5?'good':''}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
+ tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')||(s.dist>=lo&&s.dist<=hi)?'good':'';})()}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
  tb.appendChild(tr)})
 }
 function detail(code){
@@ -231,10 +247,10 @@ function detail(code){
  <div class="metric"><span>120日线</span><b>${fmt(s.ma120||0)}원</b></div>
  <div class="metric"><span>近${clampDays(num("turnDays",20),1,240)}日最低单日成交额</span><b>${minTurnForDays(s,num("turnDays",20)).toFixed(1)}亿</b></div>`;
  checks.innerHTML=`<h3>筛选检查</h3>
- <div class="reason">${periodChange(s,num("chgDays",5))>=+wmin.value&&periodChange(s,num("chgDays",5))<=+wmax.value?'✅':'❌'} 近${clampDays(num("chgDays",5),1,239)}日涨幅 ${periodChange(s,num("chgDays",5)).toFixed(2)}%</div>
- <div class="reason">${minTurnForDays(s,num("turnDays",20))>=+minturn20.value?'✅':'❌'} 近${clampDays(num("turnDays",20),1,240)}日最低单日成交额 ${minTurnForDays(s,num("turnDays",20)).toFixed(1)}亿</div>
- <div class="reason">${Math.abs(s.dist)<=+dist.value?'✅':'❌'} 距5日线 ${s.dist.toFixed(2)}%</div>
- <div class="reason">${s.streak} 日连续上涨</div>`;
+ <div class="reason">${!enabled('chgOn')?'⚪':(periodChange(s,num('chgDays',5))>=num('wmin')&&periodChange(s,num('chgDays',5))<=num('wmax')?'✅':'❌')} 近${clampDays(num('chgDays',5),1,239)}日涨幅 ${periodChange(s,num('chgDays',5)).toFixed(2)}%${!enabled('chgOn')?' · 未启用':''}</div>
+ <div class="reason">${!enabled('turnOn')?'⚪':(minTurnForDays(s,num('turnDays',20))>=num('minturn20')?'✅':'❌')} 近${clampDays(num('turnDays',20),1,240)}日最低单日成交额 ${minTurnForDays(s,num('turnDays',20)).toFixed(1)}亿${!enabled('turnOn')?' · 未启用':''}</div>
+ <div class="reason">${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')?'⚪':(s.dist>=lo&&s.dist<=hi?'✅':'❌')})()} 距5日线 ${s.dist.toFixed(2)}%${!enabled('distOn')?' · 未启用':''}</div>
+ <div class="reason">${!enabled('streakOn')?'⚪':(Number(s.streak)>=num('streak')?'✅':'❌')} ${s.streak} 日连续上涨${!enabled('streakOn')?' · 未启用':''}</div>`;
  drawMinute(s); drawDay(s); bindCharts(); drawer.classList.add("open");
 }
 
@@ -249,7 +265,7 @@ function drawMinute(s){
  chartStock=s;const c=document.getElementById('minuteChart'),ctx=c.getContext('2d'),D=resizeCanvas(c),W=c.width,H=c.height;ctx.clearRect(0,0,W,H);ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
  let raw=Array.isArray(s.minute)?s.minute:(Array.isArray(s.intraday)?s.intraday:[]);
  raw=raw.map(x=>Array.isArray(x)?{t:x[0],p:+x[1],v:+x[2]}:{t:x.time||x.t,p:+(x.price||x.p),v:+(x.volume||x.v||0)}).filter(x=>x.p>0);
- if(!raw.length){ctx.fillStyle='#7b8494';ctx.font=`${14*D}px sans-serif`;ctx.textAlign='center';ctx.fillText('暂无真实分时数据 · 收盘后获取当天分钟数据后自动显示',W/2,H/2);ctx.textAlign='left';return}
+ if(!raw.length){ctx.fillStyle='#7b8494';ctx.font=`${14*D}px sans-serif`;ctx.textAlign='center';ctx.fillText('暂无今日收盘分时数据 · 获取当天分钟数据后自动显示',W/2,H/2);ctx.textAlign='left';return}
  let data=aggregateMinute(raw,minuteView.step);let cumV=0,cumPV=0;for(let x of data){cumV+=x.v;cumPV+=x.p*x.v;x.av=cumV?cumPV/cumV:x.p}if(minuteView.end==null)minuteView.end=data.length;let span=Math.max(20,minuteView.end-minuteView.start);minuteView.start=Math.max(0,Math.min(minuteView.start,data.length-span));minuteView.end=Math.min(data.length,minuteView.start+span);let arr=data.slice(minuteView.start,minuteView.end);
  let prev=+(s.prevClose||s.prev_close||0),vals=arr.flatMap(x=>[x.p,x.av]).concat(prev?[prev]:[]),mn=Math.min(...vals)*.998,mx=Math.max(...vals)*1.002,pad={l:50*D,r:12*D,t:14*D,b:38*D},volH=58*D,ph=H-pad.t-pad.b-volH-10*D,cw=W-pad.l-pad.r,x=i=>pad.l+i*cw/Math.max(1,arr.length-1),y=v=>pad.t+(mx-v)/(mx-mn)*ph;
  minuteView._plot={arr,pad,cw,D,W,H,x,y,prev};
