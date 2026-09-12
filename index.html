@@ -99,10 +99,12 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 <div class="chart-stack">
   <div class="chart-box">
     <div class="chart-title"><b>分时图</b><span>价格 · 分时均价 · 昨收 · 成交量</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px"><button class="watch-btn" onclick="setMinuteMode(1)">1分</button><button class="watch-btn" onclick="setMinuteMode(5)">5分</button><button class="watch-btn" onclick="resetMinuteView()">回到全天</button></div>
     <canvas id="minuteChart" width="1000" height="320"></canvas>
   </div>
   <div class="chart-box">
     <div class="chart-title"><b>日K图</b><span>MA5 / MA10 / MA20 / MA30 / MA60 · VOL5 / VOL10</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px"><button class="watch-btn" onclick="setDayRange(20)">20日</button><button class="watch-btn" onclick="setDayRange(60)">60日</button><button class="watch-btn" onclick="setDayRange(120)">120日</button><button class="watch-btn" onclick="setDayRange(240)">240日</button><button class="watch-btn" onclick="resetDayView()">最新</button></div>
     <canvas id="dayChart" width="1000" height="320"></canvas>
   </div>
 </div>
@@ -227,37 +229,37 @@ function detail(code){
  <div class="reason">${minTurnForDays(s,num("turnDays",20))>=+minturn20.value?'✅':'❌'} 近${clampDays(num("turnDays",20),1,240)}日最低单日成交额 ${minTurnForDays(s,num("turnDays",20)).toFixed(1)}亿</div>
  <div class="reason">${Math.abs(s.dist)<=+dist.value?'✅':'❌'} 距5日线 ${s.dist.toFixed(2)}%</div>
  <div class="reason">${s.streak} 日连续上涨</div>`;
- drawMinute(s); drawDay(s); drawer.classList.add("open");
+ drawMinute(s); drawDay(s); bindCharts(); drawer.classList.add("open");
 }
 
+let chartStock=null,dayView={count:60,end:null,drag:false,lastX:0},minuteView={step:1,start:0,end:null,drag:false,lastX:0};
+function resizeCanvas(c){const r=c.getBoundingClientRect(),d=window.devicePixelRatio||1,w=Math.max(600,Math.round(r.width*d)),h=Math.round(320*d);if(c.width!==w||c.height!==h){c.width=w;c.height=h}return d}
+function setDayRange(n){dayView.count=n;dayView.end=null;if(chartStock)drawDay(chartStock)}
+function resetDayView(){dayView.end=null;if(chartStock)drawDay(chartStock)}
+function setMinuteMode(n){minuteView.step=n;minuteView.start=0;minuteView.end=null;if(chartStock)drawMinute(chartStock)}
+function resetMinuteView(){minuteView.start=0;minuteView.end=null;if(chartStock)drawMinute(chartStock)}
+function aggregateMinute(raw,step){if(step===1)return raw;let out=[];for(let i=0;i<raw.length;i+=step){let g=raw.slice(i,i+step),v=g.reduce((a,x)=>a+(+x.v||+x.volume||0),0),pv=g.reduce((a,x)=>a+(+x.p||+x.price||0)*(+x.v||+x.volume||0),0);out.push({t:g[0].t||g[0].time,p:+(g[g.length-1].p||g[g.length-1].price),v,avg:v?pv/v:+(g[g.length-1].p||g[g.length-1].price)})}return out}
 function drawMinute(s){
- const c=document.getElementById("minuteChart"),ctx=c.getContext("2d"),W=c.width,H=c.height;
- ctx.clearRect(0,0,W,H);ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);
- ctx.fillStyle="#7b8494";ctx.font="16px sans-serif";ctx.textAlign="center";
- ctx.fillText("真实分钟级数据待接入（已移除模拟分时，避免误导交易判断）",W/2,H/2);
- ctx.textAlign="left";
+ chartStock=s;const c=document.getElementById('minuteChart'),ctx=c.getContext('2d'),D=resizeCanvas(c),W=c.width,H=c.height;ctx.clearRect(0,0,W,H);ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+ let raw=Array.isArray(s.minute)?s.minute:(Array.isArray(s.intraday)?s.intraday:[]);
+ raw=raw.map(x=>Array.isArray(x)?{t:x[0],p:+x[1],v:+x[2]}:{t:x.time||x.t,p:+(x.price||x.p),v:+(x.volume||x.v||0)}).filter(x=>x.p>0);
+ if(!raw.length){ctx.fillStyle='#7b8494';ctx.font=`${14*D}px sans-serif`;ctx.textAlign='center';ctx.fillText('暂无真实分时数据 · 收盘后获取当天分钟数据后自动显示',W/2,H/2);ctx.textAlign='left';return}
+ let data=aggregateMinute(raw,minuteView.step);if(minuteView.end==null)minuteView.end=data.length;let span=Math.max(20,minuteView.end-minuteView.start);minuteView.start=Math.max(0,Math.min(minuteView.start,data.length-span));minuteView.end=Math.min(data.length,minuteView.start+span);let arr=data.slice(minuteView.start,minuteView.end);
+ let cumV=0,cumPV=0;for(let x of arr){cumV+=x.v;cumPV+=x.p*x.v;x.av=cumV?cumPV/cumV:x.p}let prev=+(s.prevClose||s.prev_close||0),vals=arr.flatMap(x=>[x.p,x.av]).concat(prev?[prev]:[]),mn=Math.min(...vals)*.998,mx=Math.max(...vals)*1.002,pad={l:50*D,r:12*D,t:14*D,b:38*D},volH=58*D,ph=H-pad.t-pad.b-volH-10*D,cw=W-pad.l-pad.r,x=i=>pad.l+i*cw/Math.max(1,arr.length-1),y=v=>pad.t+(mx-v)/(mx-mn)*ph;
+ ctx.strokeStyle='#eef0f3';for(let j=0;j<5;j++){let yy=pad.t+ph*j/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke()}
+ function line(key,color,w){ctx.strokeStyle=color;ctx.lineWidth=w*D;ctx.beginPath();arr.forEach((a,i)=>i?ctx.lineTo(x(i),y(a[key])):ctx.moveTo(x(i),y(a[key])));ctx.stroke()}line('p','#3182f6',1.2);line('av','#f59f00',1.5);
+ if(prev){ctx.setLineDash([4*D,4*D]);ctx.strokeStyle='#94a3b8';ctx.beginPath();ctx.moveTo(pad.l,y(prev));ctx.lineTo(W-pad.r,y(prev));ctx.stroke();ctx.setLineDash([])}let vmax=Math.max(...arr.map(a=>a.v),1),vt=pad.t+ph+10*D;arr.forEach((a,i)=>{let vh=a.v/vmax*volH;ctx.fillStyle='rgba(49,130,246,.28)';ctx.fillRect(x(i)-1*D,vt+volH-vh,2*D,vh)});
+ ctx.fillStyle='#7b8494';ctx.font=`${10*D}px sans-serif`;ctx.fillText(arr[0].t||'',pad.l,H-10*D);ctx.textAlign='right';ctx.fillText(arr[arr.length-1].t||'',W-pad.r,H-10*D);ctx.textAlign='left';
 }
-
 function drawDay(s){
- let c=document.getElementById("dayChart"),ctx=c.getContext("2d"),W=c.width,H=c.height;
- ctx.clearRect(0,0,W,H);ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);
- let arr=s.history.map(x=>({d:x[0],o:x[1],h:x[2],l:x[3],c:x[4],v:x[5]}));
- let pad={l:52,r:14,t:18,b:40},cw=W-pad.l-pad.r,priceH=H-pad.t-pad.b-76,volTop=pad.t+priceH+10,volH=58;
- let min=Math.min(...arr.map(d=>d.l))*.995,max=Math.max(...arr.map(d=>d.h))*1.005,y=v=>pad.t+(max-v)/(max-min)*priceH,x=i=>pad.l+(i+.5)*cw/arr.length;
- ctx.strokeStyle="#eef0f3";for(let j=0;j<=5;j++){let yy=pad.t+priceH*j/5;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke()}
- function MA(n,i){if(i<n-1)return null;let z=0;for(let k=i-n+1;k<=i;k++)z+=arr[k].c;return z/n}
- let ma5=arr.map((_,i)=>MA(5,i)),ma10=arr.map((_,i)=>MA(10,i)),ma20=arr.map((_,i)=>MA(20,i)),ma30=arr.map((_,i)=>MA(30,i)),ma60=arr.map((_,i)=>MA(60,i));
- for(let i=4;i<arr.length;i++){let m=ma5[i],x0=pad.l+i*cw/arr.length,x1=pad.l+(i+1)*cw/arr.length;ctx.fillStyle="rgba(49,130,246,.07)";ctx.fillRect(x0,y(m*1.01),x1-x0,y(m*.99)-y(m*1.01))}
- let bw=Math.max(3,cw/arr.length*.56);arr.forEach((d,i)=>{let xx=x(i),up=d.c>=d.o;ctx.strokeStyle=ctx.fillStyle=up?"#ef4444":"#2563eb";ctx.beginPath();ctx.moveTo(xx,y(d.h));ctx.lineTo(xx,y(d.l));ctx.stroke();ctx.fillRect(xx-bw/2,Math.min(y(d.o),y(d.c)),bw,Math.max(1,Math.abs(y(d.o)-y(d.c))))});
- function line(vals,color){ctx.strokeStyle=color;ctx.lineWidth=1.35;ctx.beginPath();let st=false;vals.forEach((v,i)=>{if(v==null)return;let xx=x(i),yy=y(v);if(!st){ctx.moveTo(xx,yy);st=true}else ctx.lineTo(xx,yy)});ctx.stroke()}
- line(ma5,"#111827");line(ma10,"#f59f00");line(ma20,"#8b5cf6");line(ma30,"#16a34a");line(ma60,"#06b6d4");
- let vmax=Math.max(...arr.map(d=>d.v));arr.forEach((d,i)=>{let vh=d.v/vmax*volH;ctx.fillStyle=d.c>=d.o?"rgba(239,68,68,.40)":"rgba(37,99,235,.40)";ctx.fillRect(x(i)-bw/2,volTop+volH-vh,bw,vh)});
- function VMA(n,i){if(i<n-1)return null;let z=0;for(let k=i-n+1;k<=i;k++)z+=arr[k].v;return z/n}
- let v5=arr.map((_,i)=>VMA(5,i)),v10=arr.map((_,i)=>VMA(10,i));
- function vline(vals,color){ctx.strokeStyle=color;ctx.lineWidth=1.1;ctx.beginPath();let st=false;vals.forEach((v,i)=>{if(v==null)return;let xx=x(i),yy=volTop+volH-v/vmax*volH;if(!st){ctx.moveTo(xx,yy);st=true}else ctx.lineTo(xx,yy)});ctx.stroke()}
- vline(v5,"#111827");vline(v10,"#f59f00");
- ctx.fillStyle="#7b8494";ctx.font="11px sans-serif";ctx.fillText("MA5",pad.l,12);ctx.fillText("MA10",pad.l+36,12);ctx.fillText("MA20",pad.l+82,12);ctx.fillText("MA30",pad.l+128,12);ctx.fillText("MA60",pad.l+174,12);ctx.fillText("VOL5 / VOL10",pad.l,volTop+volH+15);
+ chartStock=s;let c=document.getElementById('dayChart'),ctx=c.getContext('2d'),D=resizeCanvas(c),W=c.width,H=c.height;ctx.clearRect(0,0,W,H);ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);let all=(s.history||[]).map(x=>({d:x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5]}));if(!all.length)return;
+ if(dayView.end==null)dayView.end=all.length;let count=Math.min(dayView.count,all.length);dayView.end=Math.max(count,Math.min(dayView.end,all.length));let st=Math.max(0,dayView.end-count),arr=all.slice(st,dayView.end),pad={l:52*D,r:14*D,t:18*D,b:40*D},cw=W-pad.l-pad.r,priceH=H-pad.t-pad.b-76*D,volTop=pad.t+priceH+10*D,volH=58*D,min=Math.min(...arr.map(d=>d.l))*.995,max=Math.max(...arr.map(d=>d.h))*1.005,y=v=>pad.t+(max-v)/(max-min)*priceH,x=i=>pad.l+(i+.5)*cw/arr.length;
+ ctx.strokeStyle='#eef0f3';for(let j=0;j<=5;j++){let yy=pad.t+priceH*j/5;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke()}
+ function MA(n,gi){if(gi<n-1)return null;let z=0;for(let k=gi-n+1;k<=gi;k++)z+=all[k].c;return z/n}let mas=[5,10,20,30,60].map(n=>arr.map((_,i)=>MA(n,st+i))),bw=Math.max(2*D,cw/arr.length*.56);arr.forEach((d,i)=>{let xx=x(i),up=d.c>=d.o;ctx.strokeStyle=ctx.fillStyle=up?'#ef4444':'#2563eb';ctx.beginPath();ctx.moveTo(xx,y(d.h));ctx.lineTo(xx,y(d.l));ctx.stroke();ctx.fillRect(xx-bw/2,Math.min(y(d.o),y(d.c)),bw,Math.max(D,Math.abs(y(d.o)-y(d.c))))});
+ ['#111827','#f59f00','#8b5cf6','#16a34a','#06b6d4'].forEach((col,j)=>{ctx.strokeStyle=col;ctx.lineWidth=(j===0?1.8:1.2)*D;ctx.beginPath();let go=false;mas[j].forEach((v,i)=>{if(v==null)return;go?ctx.lineTo(x(i),y(v)):(ctx.moveTo(x(i),y(v)),go=true)});ctx.stroke()});let vmax=Math.max(...arr.map(d=>d.v),1);arr.forEach((d,i)=>{let vh=d.v/vmax*volH;ctx.fillStyle=d.c>=d.o?'rgba(239,68,68,.35)':'rgba(37,99,235,.35)';ctx.fillRect(x(i)-bw/2,volTop+volH-vh,bw,vh)});ctx.fillStyle='#7b8494';ctx.font=`${10*D}px sans-serif`;ctx.fillText(arr[0].d,pad.l,H-10*D);ctx.textAlign='right';ctx.fillText(arr[arr.length-1].d,W-pad.r,H-10*D);ctx.textAlign='left';
 }
+function bindCharts(){let dc=document.getElementById('dayChart'),mc=document.getElementById('minuteChart');if(dc&&!dc.dataset.bound){dc.dataset.bound=1;dc.addEventListener('wheel',e=>{e.preventDefault();dayView.count=Math.max(15,Math.min(240,dayView.count+(e.deltaY>0?10:-10)));drawDay(chartStock)},{passive:false});dc.addEventListener('mousedown',e=>{dayView.drag=true;dayView.lastX=e.clientX});window.addEventListener('mouseup',()=>dayView.drag=false);window.addEventListener('mousemove',e=>{if(!dayView.drag||!chartStock)return;let dx=e.clientX-dayView.lastX;if(Math.abs(dx)>12){dayView.end=(dayView.end||chartStock.history.length)+(dx>0?-3:3);dayView.lastX=e.clientX;drawDay(chartStock)}})}if(mc&&!mc.dataset.bound){mc.dataset.bound=1;mc.addEventListener('wheel',e=>{e.preventDefault();let raw=(chartStock&&(chartStock.minute||chartStock.intraday))||[];if(!raw.length)return;let data=aggregateMinute(raw.map(x=>Array.isArray(x)?{t:x[0],p:+x[1],v:+x[2]}:x),minuteView.step),span=minuteView.end==null?data.length:minuteView.end-minuteView.start,n=Math.max(20,Math.min(data.length,span+(e.deltaY>0?20:-20)));minuteView.end=minuteView.start+n;drawMinute(chartStock)},{passive:false})}}
+setTimeout(bindCharts,0);
 
 let activeSector=null;
 function getWatch(){try{return JSON.parse(localStorage.getItem("m2watch")||"[]")}catch(e){return []}}
