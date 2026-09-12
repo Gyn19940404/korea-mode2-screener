@@ -63,14 +63,14 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.8.2 已加入 Toss 风格可点击排序表头；全市场真实数据：部署到 GitHub Pages 后，GitHub 云端会在韩国交易日收盘后自动更新 KOSPI + KOSDAQ 数据。你打开网页即可使用，不需要本机安装 Python，也不需要运行 BAT。板块算法仍暂不改，下一步单独处理。</div>
+<div class="notice">V0.9.1：筛选条件已改为实时生效，主表只显示通过当前条件的股票；历史K线目标扩展为240个交易日。板块算法与真实分时仍待接入。</div>
 <div class="card filters">
 <div class="f">市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
-<div class="f">1周涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
-<div class="f">近20日每日成交额 ≥ <input id="minturn20" type="number" value="500"> 亿</div>
+<div class="f">近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
+<div class="f">近 <input id="turnDays" type="number" min="1" max="240" value="20"> 日每日成交额 ≥ <input id="minturn20" type="number" value="500"> 亿</div>
 <div class="f">距5日线 ± <input id="dist" type="number" step=".1" value="1.5">%</div>
 <div class="f"><input id="streakOn" type="checkbox"> 启用连续上涨 ≥ <input id="streak" type="number" value="5">日</div>
-<button onclick="render()">测试筛选</button>
+<button onclick="render()">刷新筛选</button><div class="f" style="background:#fff;color:#5b6472">候选 <b id="candidateCount">0</b> 只</div>
 </div>
 <div class="card"><table>
 <thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="mode2" data-key="price" onclick="setSort('mode2','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="daychg" onclick="setSort('mode2','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="turnover" onclick="setSort('mode2','turnover')"><span class="sort-label">成交额(亿) <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="marketCapTrillion" onclick="setSort('mode2','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="mode2" data-key="dist" onclick="setSort('mode2','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="mode2" data-key="score" onclick="setSort('mode2','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>结果</th><th>操作</th></tr></thead>
@@ -112,16 +112,32 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 const stocks=(window.STOCKS_DATA||[]);
 const dataMeta=(window.DATA_META||{});
 
-stocks.forEach(s=>{
-  const last20=s.history.slice(-20);
-  const dailyTurnovers=last20.map(x=>x.length>6 && x[6]!=null ? x[6]/1e8 : (x[4]*x[5])/1e8);
-  if(dailyTurnovers.length){
-    s.minTurn20=Math.min(...dailyTurnovers);
-    s.avgTurn20=dailyTurnovers.reduce((a,b)=>a+b,0)/dailyTurnovers.length;
-  } else {
-    s.minTurn20=0;s.avgTurn20=0;
-  }
-});
+function clampDays(v,min,max){
+  const n=Math.floor(Number(v));
+  return Number.isFinite(n)?Math.max(min,Math.min(max,n)):min;
+}
+function periodChange(s,days){
+  const h=Array.isArray(s.history)?s.history:[];
+  days=clampDays(days,1,239);
+  if(h.length<=days) return NaN;
+  const now=Number(h[h.length-1]?.[4]);
+  const base=Number(h[h.length-1-days]?.[4]);
+  return now>0&&base>0 ? (now/base-1)*100 : NaN;
+}
+function minTurnForDays(s,days){
+  const h=Array.isArray(s.history)?s.history:[];
+  days=clampDays(days,1,240);
+  if(h.length<days) return NaN;
+  const vals=h.slice(-days).map(x=>x.length>6&&x[6]!=null ? Number(x[6])/1e8 : (Number(x[4])*Number(x[5]))/1e8).filter(Number.isFinite);
+  return vals.length===days ? Math.min(...vals) : NaN;
+}
+function avgTurnForDays(s,days){
+  const h=Array.isArray(s.history)?s.history:[];
+  days=clampDays(days,1,240);
+  if(h.length<days) return NaN;
+  const vals=h.slice(-days).map(x=>x.length>6&&x[6]!=null ? Number(x[6])/1e8 : (Number(x[4])*Number(x[5]))/1e8).filter(Number.isFinite);
+  return vals.length===days ? vals.reduce((a,b)=>a+b,0)/vals.length : NaN;
+}
 
 
 function updateDataStatus(){
@@ -141,15 +157,23 @@ function updateDataStatus(){
 updateDataStatus();
 
 function fmt(n){return Math.round(n).toLocaleString()}
+const $=id=>document.getElementById(id);
+function num(id,fallback=0){const v=parseFloat($(id)?.value);return Number.isFinite(v)?v:fallback;}
 function passes(s){
- let ok=s.marketCapTrillion*10000 >= +cap.value
-   && s.week>=+wmin.value
-   && s.week<=+wmax.value
-   && s.minTurn20>=+minturn20.value
-   && Math.abs(s.dist)<=+dist.value;
- if(streakOn.checked) ok=ok&&s.streak>=+streak.value;
+ const capYi=(Number(s.marketCapTrillion)||0)*10000; // 1万亿韩元 = 10000亿韩元
+ const chg=periodChange(s,num("chgDays",5));
+ const minTurn=minTurnForDays(s,num("turnDays",20));
+ let ok=capYi >= num("cap")
+   && Number.isFinite(chg) && chg>=num("wmin")
+   && chg<=num("wmax")
+   && Number.isFinite(minTurn) && minTurn>=num("minturn20")
+   && Math.abs(Number(s.dist))<=num("dist");
+ if($("streakOn").checked) ok=ok&&Number(s.streak)>=num("streak");
  return ok;
 }
+["cap","chgDays","wmin","wmax","turnDays","minturn20","dist","streak","streakOn"].forEach(id=>{
+ const el=$(id); if(el){el.addEventListener("input",()=>{render();renderFinal();});el.addEventListener("change",()=>{render();renderFinal();});}
+});
 const sortState={
   mode2:{key:"score",dir:"desc"},
   final:{key:"score",dir:"desc"},
@@ -183,58 +207,41 @@ function setSort(view,key){
   if(view==="watch") renderWatch();
 }
 function render(){
- let rows=sortedRows(stocks,"mode2");tb.innerHTML="";
+ let rows=sortedRows(stocks.filter(passes),"mode2");tb.innerHTML="";
+ $("candidateCount").textContent=rows.length;
  updateSortHeaders("mode2");
  rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
- tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${Math.abs(s.dist)<=1.5?'good':''}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="${passes(s)?'pass':'fail'}">${passes(s)?'通过':'淘汰'}</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
+ tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${Math.abs(s.dist)<=1.5?'good':''}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
  tb.appendChild(tr)})
 }
 function detail(code){
  let s=stocks.find(x=>x.code===code);
  dn.textContent=s.name+" · "+s.code;
- dm.innerHTML=`<div class="metric"><span>1周涨幅</span><b>${s.week>=0?'+':''}${s.week.toFixed(2)}%</b></div>
+ dm.innerHTML=`<div class="metric"><span>近${clampDays(num("chgDays",5),1,239)}日涨幅</span><b>${periodChange(s,num("chgDays",5))>=0?'+':''}${periodChange(s,num("chgDays",5)).toFixed(2)}%</b></div>
  <div class="metric"><span>5日线</span><b>${fmt(s.ma5)}원</b></div>
  <div class="metric"><span>10日线</span><b>${fmt(s.ma10)}원</b></div>
  <div class="metric"><span>20日线</span><b>${fmt(s.ma20)}원</b></div>
- <div class="metric"><span>近20日最低单日成交额</span><b>${s.minTurn20.toFixed(1)}亿</b></div>`;
+ <div class="metric"><span>近${clampDays(num("turnDays",20),1,240)}日最低单日成交额</span><b>${minTurnForDays(s,num("turnDays",20)).toFixed(1)}亿</b></div>`;
  checks.innerHTML=`<h3>筛选检查</h3>
- <div class="reason">${s.week>=+wmin.value&&s.week<=+wmax.value?'✅':'❌'} 1周涨幅 ${s.week.toFixed(2)}%</div>
- <div class="reason">${s.minTurn20>=+minturn20.value?'✅':'❌'} 近20日最低单日成交额 ${s.minTurn20.toFixed(1)}亿</div>
+ <div class="reason">${periodChange(s,num("chgDays",5))>=+wmin.value&&periodChange(s,num("chgDays",5))<=+wmax.value?'✅':'❌'} 近${clampDays(num("chgDays",5),1,239)}日涨幅 ${periodChange(s,num("chgDays",5)).toFixed(2)}%</div>
+ <div class="reason">${minTurnForDays(s,num("turnDays",20))>=+minturn20.value?'✅':'❌'} 近${clampDays(num("turnDays",20),1,240)}日最低单日成交额 ${minTurnForDays(s,num("turnDays",20)).toFixed(1)}亿</div>
  <div class="reason">${Math.abs(s.dist)<=+dist.value?'✅':'❌'} 距5日线 ${s.dist.toFixed(2)}%</div>
  <div class="reason">${s.streak} 日连续上涨</div>`;
  drawMinute(s); drawDay(s); drawer.classList.add("open");
 }
 
 function drawMinute(s){
- let c=document.getElementById("minuteChart"),ctx=c.getContext("2d"),W=c.width,H=c.height;
+ const c=document.getElementById("minuteChart"),ctx=c.getContext("2d"),W=c.width,H=c.height;
  ctx.clearRect(0,0,W,H);ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);
- let h=s.history,last=h[h.length-1],prev=h[h.length-2],prevClose=prev[4],close=last[4];
- let N=121,arr=[],seed=parseInt(s.code)%9973+17,xseed=seed;
- function rr(){xseed=(xseed*9301+49297)%233280;return xseed/233280}
- let startP=last[1],cumPV=0,cumV=0;
- for(let i=0;i<N;i++){
-   let target=startP+(close-startP)*(i/(N-1));
-   let p=target*(1+(rr()-.5)*0.006); if(i===N-1)p=close;
-   let v=5000+rr()*30000+(i<8?25000:0); cumPV+=p*v;cumV+=v;arr.push({p,v,avg:cumPV/cumV});
- }
- let vals=arr.flatMap(d=>[d.p,d.avg]).concat([prevClose]),min=Math.min(...vals)*.998,max=Math.max(...vals)*1.002;
- let pad={l:52,r:14,t:18,b:45},cw=W-pad.l-pad.r,priceH=H-pad.t-pad.b-68;
- let y=v=>pad.t+(max-v)/(max-min)*priceH,x=i=>pad.l+i*cw/(N-1);
- ctx.strokeStyle="#eef0f3";for(let j=0;j<=5;j++){let yy=pad.t+priceH*j/5;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke()}
- ctx.setLineDash([5,4]);ctx.strokeStyle="#9aa2af";ctx.beginPath();ctx.moveTo(pad.l,y(prevClose));ctx.lineTo(W-pad.r,y(prevClose));ctx.stroke();ctx.setLineDash([]);
- ctx.strokeStyle="#3182f6";ctx.lineWidth=2;ctx.beginPath();arr.forEach((d,i)=>{if(i===0)ctx.moveTo(x(i),y(d.p));else ctx.lineTo(x(i),y(d.p))});ctx.stroke();
- ctx.strokeStyle="#f59f00";ctx.lineWidth=1.7;ctx.beginPath();arr.forEach((d,i)=>{if(i===0)ctx.moveTo(x(i),y(d.avg));else ctx.lineTo(x(i),y(d.avg))});ctx.stroke();
- let vmax=Math.max(...arr.map(d=>d.v)),vbase=H-pad.b;arr.forEach((d,i)=>{let vh=d.v/vmax*55;ctx.fillStyle="rgba(239,68,68,.32)";ctx.fillRect(x(i)-1.2,vbase-vh,2.4,vh)});
- ctx.fillStyle="#7b8494";ctx.font="11px sans-serif";ctx.fillText("蓝：分时价格",pad.l,12);ctx.fillText("橙：分时均价",pad.l+90,12);ctx.fillText("虚线：昨收",pad.l+180,12);
- ctx.fillText("09:00",pad.l,H-12);ctx.fillText("12:00",pad.l+cw*.48,H-12);ctx.fillText("15:30",W-pad.r-34,H-12);
+ ctx.fillStyle="#7b8494";ctx.font="16px sans-serif";ctx.textAlign="center";
+ ctx.fillText("真实分钟级数据待接入（已移除模拟分时，避免误导交易判断）",W/2,H/2);
+ ctx.textAlign="left";
 }
 
 function drawDay(s){
  let c=document.getElementById("dayChart"),ctx=c.getContext("2d"),W=c.width,H=c.height;
  ctx.clearRect(0,0,W,H);ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);
  let arr=s.history.map(x=>({d:x[0],o:x[1],h:x[2],l:x[3],c:x[4],v:x[5]}));
- let seed=parseInt(s.code)%7919+31,xseed=seed; function rr(){xseed=(xseed*9301+49297)%233280;return xseed/233280}
- while(arr.length<65){let f=arr[0],cc=f.o*(1-(rr()-.48)*0.02),oo=cc*(1+(rr()-.5)*.01);let hh=Math.max(oo,cc)*(1+rr()*.015),ll=Math.min(oo,cc)*(1-rr()*.015),vv=50000+rr()*250000;arr.unshift({d:"",o:oo,h:hh,l:ll,c:cc,v:vv})}
  let pad={l:52,r:14,t:18,b:40},cw=W-pad.l-pad.r,priceH=H-pad.t-pad.b-76,volTop=pad.t+priceH+10,volH=58;
  let min=Math.min(...arr.map(d=>d.l))*.995,max=Math.max(...arr.map(d=>d.h))*1.005,y=v=>pad.t+(max-v)/(max-min)*priceH,x=i=>pad.l+(i+.5)*cw/arr.length;
  ctx.strokeStyle="#eef0f3";for(let j=0;j<=5;j++){let yy=pad.t+priceH*j/5;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke()}
