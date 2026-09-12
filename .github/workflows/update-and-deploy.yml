@@ -5,13 +5,16 @@ on:
   push:
     branches: ["main"]
   schedule:
-    - cron: "30 16 * * 1-5"
+    - cron: "10 20 * * 1-5"
       timezone: "Asia/Seoul"
 
 permissions:
   contents: read
   pages: write
   id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: "pages"
@@ -23,21 +26,34 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: 读取项目
         uses: actions/checkout@v6
 
+      # 只有“手动运行”或“每天20:10自动运行”才抓行情。
+      # 普通修改 index.html 后 push，只部署网页，不再浪费5分钟重抓全市场。
+      - name: 恢复240日行情缓存
+        if: github.event_name != 'push'
+        uses: actions/cache@v4
+        with:
+          path: .data_cache
+          key: krx-history-${{ github.run_id }}
+          restore-keys: |
+            krx-history-
+
       - name: 安装 Python
+        if: github.event_name != 'push'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
       - name: 安装行情组件
+        if: github.event_name != 'push'
         run: pip install -r requirements.txt
 
-      - name: 获取 KOSPI + KOSDAQ 全市场数据
+      - name: 获取并增量更新 KOSPI + KOSDAQ 数据
+        if: github.event_name != 'push'
         run: python scripts/update_data.py
 
       - name: 配置 GitHub Pages
