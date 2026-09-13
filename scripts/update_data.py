@@ -168,9 +168,14 @@ def fetch_quote(code):
             nxt_time = str(nxt.get('localTradedAt') or '')
             nxt_status = str(nxt.get('overMarketStatus') or '')
 
-            # 只要NXT给出了有效最终/最新价格，就以NXT为当天最终盘口价。
-            # 20:10任务运行时，NXT已于20:00结束。
-            use_nxt = nxt_price > 0
+            # 只有“当天确实发生了 NXT 成交”才允许 NXT 覆盖 KRX 收盘价。
+            # 防止 polling 字段中残留旧 NXT 价格，导致没有盘后成交的股票也被错误覆盖。
+            today = datetime.now().strftime('%Y-%m-%d')
+            nxt_date = nxt_time[:10] if len(nxt_time) >= 10 else ''
+            nxt_has_trade = (nxt_volume > 0 or nxt_value > 0)
+            nxt_is_today = (nxt_date == today)
+            use_nxt = (nxt_price > 0 and nxt_has_trade and nxt_is_today)
+
             price = nxt_price if use_nxt else krx_price
             if price <= 0:
                 raise RuntimeError('价格为空')
@@ -180,7 +185,7 @@ def fetch_quote(code):
             total_volume = krx_volume + (nxt_volume if use_nxt else 0)
 
             local_time = nxt_time if use_nxt and nxt_time else str(d.get('lv') or '')
-            if nxt_time:
+            if use_nxt and nxt_time:
                 trade_date = nxt_time[:10]
 
             return {
@@ -361,7 +366,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX/NXT close)',
         'update_mode': '240日缓存增量 + NXT收盘快照',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'NXT有报价时使用NXT最终价；成交额=KRX+NXT；否则使用KRX',
+        'snapshot_rule': '仅当NXT为当天且有实际成交时使用NXT最终价；成交额=KRX+当日NXT；否则使用KRX',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
