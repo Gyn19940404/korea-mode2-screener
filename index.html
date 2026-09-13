@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>韩股模式2选股器 V0.9.5 可勾选筛选版</title>
+<title>韩股模式2选股器 V0.9.8 对表调试版</title>
 <style>
 body{margin:0;font-family:Arial,"Microsoft YaHei","Noto Sans KR",sans-serif;background:#f6f7f9;color:#171a21}
 header{height:60px;background:#fff;border-bottom:1px solid #e8ebf0;display:flex;align-items:center;padding:0 24px;gap:10px}
@@ -46,7 +46,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 .chart-box{position:relative}
 .chart-tip{position:absolute;display:none;pointer-events:none;z-index:20;background:rgba(17,24,39,.94);color:#fff;padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.55;box-shadow:0 4px 16px rgba(0,0,0,.18);white-space:nowrap}
 </style></head>
-<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.9.5 可勾选筛选版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
+<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.9.8 对表调试版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
 <div class="layout">
 <aside class="sidebar">
   <div class="side-label">我的策略</div>
@@ -66,7 +66,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.9.5：所有筛选条件均可独立勾选启用；未勾选的条件完全不参与筛选。距5日线改为可分别设置下限与上限。</div>
+<div class="notice">V0.9.8 对表调试版：保留现有筛选逻辑，并在主表增加“近N日涨幅 / 连续上涨天数 / 近N日平均成交额”三列，专门用于与 Toss 条件逐只对表。</div>
 <div class="card filters">
 <div class="f" data-filter="capOn"><input id="capOn" type="checkbox" checked>市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
 <div class="f" data-filter="chgOn"><input id="chgOn" type="checkbox" checked>近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
@@ -76,7 +76,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 <button onclick="render()">刷新筛选</button><div class="f" style="background:#fff;color:#5b6472">候选 <b id="candidateCount">0</b> 只</div>
 </div>
 <div class="card"><table>
-<thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="mode2" data-key="price" onclick="setSort('mode2','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="daychg" onclick="setSort('mode2','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="turnover" onclick="setSort('mode2','turnover')"><span class="sort-label">成交额(亿) <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="marketCapTrillion" onclick="setSort('mode2','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="mode2" data-key="dist" onclick="setSort('mode2','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="mode2" data-key="score" onclick="setSort('mode2','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>结果</th><th>操作</th></tr></thead>
+<thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="mode2" data-key="price" onclick="setSort('mode2','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="daychg" onclick="setSort('mode2','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th>近N日涨幅</th><th>连续上涨</th><th>近N日平均成交额</th><th class="sort-th" data-view="mode2" data-key="turnover" onclick="setSort('mode2','turnover')"><span class="sort-label">当天成交额(亿) <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="marketCapTrillion" onclick="setSort('mode2','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="mode2" data-key="dist" onclick="setSort('mode2','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="mode2" data-key="score" onclick="setSort('mode2','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>结果</th><th>操作</th></tr></thead>
 <tbody id="tb"></tbody></table></div>
 </section>
 <section id="panel-sectors" class="side-panel">
@@ -234,7 +234,10 @@ function render(){
  $("candidateCount").textContent=rows.length;
  updateSortHeaders("mode2");
  rows.forEach((s,i)=>{let tr=document.createElement("tr");tr.style.cursor="pointer";tr.onclick=()=>detail(s.code);
- tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')||(s.dist>=lo&&s.dist<=hi)?'good':'';})()}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
+ const dbgChg=periodChange(s,num("chgDays",5));
+ const dbgStreak=Number(s.streak)||0;
+ const dbgAvgTurn=avgTurnForDays(s,num("turnDays",20));
+ tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td class="${dbgChg>=0?'up':'down'}">${dbgChg>=0?'+':''}${dbgChg.toFixed(2)}%</td><td>${dbgStreak}日</td><td>${dbgAvgTurn.toFixed(1)}亿</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')||(s.dist>=lo&&s.dist<=hi)?'good':'';})()}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
  tb.appendChild(tr)})
 }
 function detail(code){
