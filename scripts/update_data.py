@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.11 NXT官方20:00收盘版
+V0.9.12 NXT官方20:00收盘版（修复re导入）
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -10,7 +10,7 @@ V0.9.11 NXT官方20:00收盘版
 目的：让“现价 / 当天涨幅 / 当天成交额 / 市值”尽量与 Toss 在 NXT 收盘后的口径一致。
 历史旧数据的成交额仍可能是近似值；从本版本开始每天保存精确成交额与 NXT 最终价。
 """
-import gzip, json, time, threading
+import gzip, json, time, threading, re
 from datetime import datetime, timedelta
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
