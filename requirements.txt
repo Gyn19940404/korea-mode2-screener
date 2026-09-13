@@ -1,3 +1,4 @@
 finance-datareader>=0.9.96
 pandas>=2.2
 requests>=2.31
+selenium>=4.25
