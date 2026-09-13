@@ -2,96 +2,71 @@ name: 更新韩股数据并部署网页
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
   schedule:
-    # GitHub cron 使用 UTC；11:10 UTC = 韩国时间 20:10
-    - cron: "10 11 * * 1-5"
+    # NXT官网行情约20分钟延迟；20:30 KST = 11:30 UTC
+    - cron: "30 11 * * 1-5"
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  update-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: 读取项目
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      # 普通网页修改时，不重新抓全市场。
-      # 先从当前线上网页取回“上一版完整 stocks_data.js”，防止仓库里的4只测试数据被重新部署。
-      - name: 保留线上完整股票数据
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          set -e
-          URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/stocks_data.js"
-          echo "读取上一版线上数据: $URL"
-          curl -fL --retry 4 --retry-delay 3 "$URL" -o stocks_data.live.js
-          SIZE=$(wc -c < stocks_data.live.js)
-          echo "线上 stocks_data.js 大小: $SIZE bytes"
-          if [ "$SIZE" -lt 1000000 ]; then
-            echo "线上数据文件过小，拒绝用它覆盖当前数据。"
-            exit 1
-          fi
-          mv stocks_data.live.js stocks_data.js
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
 
-      - name: 恢复240日行情缓存
-        if: github.event_name != 'push'
+      - name: 缓存历史数据
         uses: actions/cache@v4
         with:
           path: .data_cache
-          key: krx-history-${{ github.run_id }}
+          key: korea-mode2-history-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
-            krx-history-
-
-      - name: 安装 Python
-        if: github.event_name != 'push'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
+            korea-mode2-history-${{ runner.os }}-
 
       - name: 安装行情组件
-        if: github.event_name != 'push'
         run: pip install -r requirements.txt
 
-      - name: 获取并增量更新 KOSPI + KOSDAQ 数据
-        if: github.event_name != 'push'
+      - name: 更新全市场数据
         run: python scripts/update_data.py
 
-      - name: 检查部署数据不是测试版
-        shell: bash
+      - name: 校验数据文件
         run: |
-          set -e
           test -f stocks_data.js
           SIZE=$(wc -c < stocks_data.js)
-          echo "准备部署的 stocks_data.js: $SIZE bytes"
+          echo "stocks_data.js size=$SIZE"
           if [ "$SIZE" -lt 1000000 ]; then
-            echo "stocks_data.js 过小，疑似测试数据，停止部署。"
+            echo "数据文件过小，拒绝部署"
             exit 1
           fi
 
-      - name: 配置 GitHub Pages
+      - name: 配置 Pages
         uses: actions/configure-pages@v5
 
-      - name: 打包网页
-        uses: actions/upload-pages-artifact@v4
+      - name: 上传 Pages
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: "."
+          path: .
 
-      - name: 发布网页
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: 部署 Pages
         id: deployment
         uses: actions/deploy-pages@v4
