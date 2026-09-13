@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.14 NXT接口自动诊断版
+V0.9.15 NXT关键XHR完整诊断版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -407,12 +407,31 @@ def fetch_nxt_official(target_date):
                         seen.add(url2)
                         low = url2.lower()
                         if ('nextrade.co.kr' in low and
-                            any(k in low for k in ('transaction', 'ajax', 'api', 'list', 'trade', 'market', 'status'))):
+                            any(k in low for k in ('transaction', 'ajax', 'api', 'list', 'trade', 'market', 'status', 'brdinfo'))):
                             print(f'[{rtype}] {url2}')
+                            if 'brdinfolist.do' in low or 'brdinfotime/brdinfotimelist.do' in low:
+                                print('--- 关键XHR请求详情 ---')
+                                print('method:', req.get('method'))
+                                print('postData:', req.get('postData'))
+                                print('headers:', json.dumps(req.get('headers', {}), ensure_ascii=False))
+                                rid = params.get('requestId')
+                                if rid:
+                                    try:
+                                        body = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': rid})
+                                        print('responseBody前5000字符:')
+                                        print((body.get('body') or '')[:5000])
+                                    except Exception as ee:
+                                        print('读取XHR响应体失败:', ee)
                     except Exception:
                         pass
             except Exception as e:
                 print('读取NXT网络日志失败:', e)
+
+            try:
+                print('===== NXT 浏览器 Cookies =====')
+                print(json.dumps(driver.get_cookies(), ensure_ascii=False))
+            except Exception as e:
+                print('读取Cookies失败:', e)
 
             # 额外输出 trade1 表格的当前 HTML 前3000字符，便于判断数据由何种脚本注入。
             try:
