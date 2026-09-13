@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.9 数据基准修复
+V0.9.11 NXT官方20:00收盘版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
-- 当日基准：NAVER polling，优先采用 NXT After-market 收盘快照
+- 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
 - 当日市值：最终价 × 上市股数
 - 当天涨幅：最终价相对前收盘价
@@ -18,6 +18,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import FinanceDataReader as fdr
 import pandas as pd
 import requests
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait, Select
+from selenium.webdriver.support import expected_conditions as EC
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'stocks_data.js'
@@ -139,7 +143,7 @@ def fetch_history(code, old):
 
 
 def fetch_quote(code):
-    """获取 Naver KRX + NXT 收盘快照。优先使用 NXT over-market 最终价。"""
+    """获取 Naver KRX 收盘快照。NXT 最终价改由 NXT 官方页面单独获取。"""
     url = f'https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code}'
     err = None
     for a in range(RETRIES):
@@ -154,60 +158,162 @@ def fetch_quote(code):
 
             krx_price = si(d.get('nv'))
             prev_close = si(d.get('sv'))
-            krx_value = si(d.get('aa'))       # KRX实际成交额（원）
+            krx_value = si(d.get('aa'))
             krx_volume = si(d.get('aq'))
             listed = si(d.get('countOfListedStock'))
-            trade_date = ''
 
-            nxt = d.get('nxtOverMarketPriceInfo') or {}
-            nxt_price = si(nxt.get('overPrice'))
-            nxt_value = si(nxt.get('accumulatedTradingValue'))
-            nxt_volume = si(nxt.get('accumulatedTradingVolume'))
-            nxt_high = si(nxt.get('highPrice'))
-            nxt_low = si(nxt.get('lowPrice'))
-            nxt_time = str(nxt.get('localTradedAt') or '')
-            nxt_status = str(nxt.get('overMarketStatus') or '')
-
-            # 只有“当天确实发生了 NXT 成交”才允许 NXT 覆盖 KRX 收盘价。
-            # 防止 polling 字段中残留旧 NXT 价格，导致没有盘后成交的股票也被错误覆盖。
-            today = datetime.now().strftime('%Y-%m-%d')
-            nxt_date = nxt_time[:10] if len(nxt_time) >= 10 else ''
-            nxt_has_trade = (nxt_volume > 0 or nxt_value > 0)
-            nxt_is_today = (nxt_date == today)
-            use_nxt = (nxt_price > 0 and nxt_has_trade and nxt_is_today)
-
-            price = nxt_price if use_nxt else krx_price
-            if price <= 0:
-                raise RuntimeError('价格为空')
-
-            daychg = ((price / prev_close - 1) * 100) if prev_close else sf(d.get('cr'))
-            total_value = krx_value + (nxt_value if use_nxt else 0)
-            total_volume = krx_volume + (nxt_volume if use_nxt else 0)
-
-            local_time = nxt_time if use_nxt and nxt_time else str(d.get('lv') or '')
-            if use_nxt and nxt_time:
-                trade_date = nxt_time[:10]
+            if krx_price <= 0:
+                raise RuntimeError('KRX价格为空')
 
             return {
-                'price': price,
+                'price': krx_price,
                 'prevClose': prev_close,
-                'daychg': daychg,
-                'turnoverWon': total_value,
-                'volume': total_volume,
+                'daychg': ((krx_price / prev_close - 1) * 100) if prev_close else sf(d.get('cr')),
+                'turnoverWon': krx_value,
+                'volume': krx_volume,
                 'listedShares': listed,
-                'useNxt': use_nxt,
-                'nxtPrice': nxt_price,
-                'nxtValue': nxt_value,
-                'nxtHigh': nxt_high,
-                'nxtLow': nxt_low,
-                'nxtStatus': nxt_status,
-                'tradeDate': trade_date,
+                'useNxt': False,
+                'nxtPrice': 0,
+                'nxtValue': 0,
+                'nxtVolume': 0,
+                'nxtHigh': 0,
+                'nxtLow': 0,
+                'tradeDate': '',
             }
         except Exception as e:
             err = e
             time.sleep(0.8 * (a + 1))
-    print(f'[快照失败] {code}: {err}')
+    print(f'[KRX快照失败] {code}: {err}')
     return None
+
+
+def fetch_nxt_official():
+    """
+    从 NXT 官方“正規市场(종목)”页面读取最终数据。
+    官方页面注明行情约20分钟延迟，因此自动任务放到20:30(KST)运行。
+    返回: {股票代码: {price, volume, value, high, low, pct}}
+    """
+    url = 'https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do'
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless=new')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080')
+    options.add_argument(f'--user-agent={UA}')
+
+    driver = None
+    out = {}
+    try:
+        driver = webdriver.Chrome(options=options)
+        driver.get(url)
+
+        wait = WebDriverWait(driver, 30)
+        wait.until(EC.presence_of_element_located((By.ID, 'trade1')))
+        time.sleep(4)
+
+        # 尽量把“每页显示数量”调到最大，减少翻页。
+        try:
+            for sel_el in driver.find_elements(By.TAG_NAME, 'select'):
+                try:
+                    sel = Select(sel_el)
+                    numeric = []
+                    for op in sel.options:
+                        val = (op.get_attribute('value') or '').strip()
+                        txt = (op.text or '').strip()
+                        cand = val if val.isdigit() else txt.replace(',', '')
+                        if cand.isdigit():
+                            numeric.append((int(cand), op))
+                    if numeric:
+                        n, op = max(numeric, key=lambda x: x[0])
+                        if 20 <= n <= 5000:
+                            sel.select_by_visible_text(op.text)
+                            time.sleep(2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        seen_signatures = set()
+
+        for page_no in range(1, 80):
+            time.sleep(1.0)
+            rows = driver.find_elements(By.XPATH, "//table[@id='trade1']/tbody/tr")
+            page_codes = []
+
+            for row in rows:
+                cells = [c.text.strip() for c in row.find_elements(By.TAG_NAME, 'td')]
+                if len(cells) < 5:
+                    continue
+
+                code_match = None
+                for c in cells[:3]:
+                    m = re.search(r'(?<!\d)(\d{6})(?!\d)', c.replace(' ', ''))
+                    if m:
+                        code_match = m.group(1)
+                        break
+                if not code_match:
+                    continue
+
+                # 官方列顺序：
+                # 종목코드, 종목명, 상장시장, 현재가, 대비, 등락률, 시가, 고가, 저가, 거래량, 거래대금 ...
+                try:
+                    code = code_match
+                    price = si(cells[3])
+                    pct = sf(cells[5]) if len(cells) > 5 else 0
+                    high = si(cells[7]) if len(cells) > 7 else 0
+                    low = si(cells[8]) if len(cells) > 8 else 0
+                    volume = si(cells[9]) if len(cells) > 9 else 0
+                    value = si(cells[10]) if len(cells) > 10 else 0
+                except Exception:
+                    continue
+
+                if price > 0 and (volume > 0 or value > 0):
+                    out[code] = {
+                        'price': price,
+                        'pct': pct,
+                        'volume': volume,
+                        'value': value,
+                        'high': high,
+                        'low': low,
+                    }
+                    page_codes.append(code)
+
+            sig = tuple(page_codes[:3] + page_codes[-3:])
+            if not page_codes or sig in seen_signatures:
+                break
+            seen_signatures.add(sig)
+
+            # 找“下一页”。如果没有，就说明已经是最后一页或一次性显示全部。
+            next_candidates = driver.find_elements(
+                By.XPATH,
+                "//a[contains(normalize-space(.),'다음') or contains(@class,'next') or contains(@title,'다음')]"
+                " | //button[contains(normalize-space(.),'다음') or contains(@class,'next') or contains(@title,'다음')]"
+            )
+            clicked = False
+            for btn in next_candidates:
+                try:
+                    cls = (btn.get_attribute('class') or '').lower()
+                    aria = (btn.get_attribute('aria-disabled') or '').lower()
+                    if 'disabled' in cls or aria == 'true':
+                        continue
+                    driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(2)
+                    clicked = True
+                    break
+                except Exception:
+                    pass
+            if not clicked:
+                break
+
+        print(f'NXT官方收盘数据: {len(out)}只')
+        if len(out) < 300:
+            raise RuntimeError(f'NXT官方数据仅抓到 {len(out)} 只，数量异常')
+        return out
+
+    finally:
+        if driver is not None:
+            driver.quit()
 
 
 def apply_snapshot(hist, quote):
@@ -338,6 +444,38 @@ def main():
     if len(quotes) < MIN_TOTAL_STOCKS:
         raise RuntimeError(f'当日快照只有 {len(quotes)} 只，拒绝覆盖 stocks_data.js')
 
+    # 3) NXT 官方20:00最终数据（官网约20分钟延迟，因此任务安排在20:30 KST）
+    nxt_official = fetch_nxt_official()
+
+    # 把 NXT 官方最终价/成交量/成交额合并进 KRX 快照
+    merged_nxt = 0
+    for c, nx in nxt_official.items():
+        q = quotes.get(c)
+        if not q:
+            continue
+        nx_price = si(nx.get('price'))
+        nx_volume = si(nx.get('volume'))
+        nx_value = si(nx.get('value'))
+        if nx_price <= 0 or (nx_volume <= 0 and nx_value <= 0):
+            continue
+
+        q['useNxt'] = True
+        q['nxtPrice'] = nx_price
+        q['nxtVolume'] = nx_volume
+        q['nxtValue'] = nx_value
+        q['nxtHigh'] = si(nx.get('high'))
+        q['nxtLow'] = si(nx.get('low'))
+
+        q['price'] = nx_price
+        q['daychg'] = ((nx_price / q['prevClose'] - 1) * 100) if q.get('prevClose') else sf(nx.get('pct'))
+        q['turnoverWon'] = si(q.get('turnoverWon')) + nx_value
+        q['volume'] = si(q.get('volume')) + nx_volume
+        merged_nxt += 1
+
+    print(f'NXT官方数据成功合并: {merged_nxt}只')
+    if merged_nxt < 300:
+        raise RuntimeError(f'NXT成功合并仅 {merged_nxt} 只，数量异常，拒绝覆盖正式数据')
+
     # 先把精确收盘快照写回缓存，防止下一次被历史日线覆盖
     for c, q in quotes.items():
         if c in histories:
@@ -363,10 +501,10 @@ def main():
         'kosdaq_count': sum(x['market'] == 'KOSDAQ' for x in res),
         'total_count': len(res),
         'history_days': HISTORY_DAYS,
-        'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX/NXT close)',
-        'update_mode': '240日缓存增量 + NXT收盘快照',
+        'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
+        'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': '仅当NXT为当天且有实际成交时使用NXT最终价；成交额=KRX+当日NXT；否则使用KRX',
+        'snapshot_rule': 'NXT官方有实际成交则使用20:00最终价；成交额=KRX+NXT；无NXT成交则使用KRX',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
