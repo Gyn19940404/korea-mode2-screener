@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.16 NXT日期参数正式修复版
+V0.9.17 NXT直接XHR版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -189,11 +189,14 @@ def fetch_quote(code):
 
 def fetch_nxt_official(target_date):
     """
-    从 NXT 官方“正規市场(종목)”页面读取最终数据。
-    官方页面注明行情约20分钟延迟，因此自动任务放到20:30(KST)运行。
-    返回: {股票代码: {price, volume, value, high, low, pct}}
+    V0.9.17：不再点击 NXT 网页按钮。
+    先用 Chrome 打开 NXT 官网取得 Cloudflare 会话，
+    再在浏览器同源环境里直接 POST 官方 XHR：
+    /brdinfoTime/brdinfoTimeList.do
     """
     url = 'https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do'
+    api_path = '/brdinfoTime/brdinfoTimeList.do'
+
     options = webdriver.ChromeOptions()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -201,11 +204,71 @@ def fetch_nxt_official(target_date):
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
     options.add_argument(f'--user-agent={UA}')
-    # 记录浏览器网络请求，用来自动发现 NXT 页面背后的 XHR/API。
-    options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
 
     driver = None
     out = {}
+
+    def pick(d, *keys):
+        for k in keys:
+            if k in d and d[k] not in (None, ''):
+                return d[k]
+        return None
+
+    def parse_record(r):
+        if not isinstance(r, dict):
+            return None
+
+        code = pick(
+            r, 'isuSrtCd', 'isuCd', 'shortCode', 'code', 'stockCode',
+            'symbol', 'isuNo', 'stckShrnIsin'
+        )
+        if code is not None:
+            m = re.search(r'(\d{6})', str(code))
+            code = m.group(1) if m else None
+        if not code:
+            return None
+
+        price = pick(
+            r, 'curPrc', 'curPrice', 'nowPrc', 'nowPrice', 'price',
+            'stckPrpr', 'currentPrice', 'closPrc'
+        )
+        pct = pick(
+            r, 'upDownRate', 'fluctuationRate', 'changeRate', 'pct',
+            'rate', 'prdyCtrt'
+        )
+        high = pick(r, 'hgPrc', 'highPrc', 'highPrice', 'high', 'stckHgpr')
+        low = pick(r, 'lwPrc', 'lowPrc', 'lowPrice', 'low', 'stckLwpr')
+        volume = pick(
+            r, 'accTrdvol', 'accTrdVol', 'trdVol', 'volume',
+            'accVolume', 'acmlVol'
+        )
+        value = pick(
+            r, 'accTrdval', 'accTrdVal', 'trdVal', 'value',
+            'accValue', 'acmlTrPbmn'
+        )
+
+        try:
+            price = si(price)
+            pct = sf(pct) if pct is not None else 0
+            high = si(high) if high is not None else 0
+            low = si(low) if low is not None else 0
+            volume = si(volume) if volume is not None else 0
+            value = si(value) if value is not None else 0
+        except Exception:
+            return None
+
+        if price <= 0:
+            return None
+
+        return code, {
+            'price': price,
+            'pct': pct,
+            'volume': volume,
+            'value': value,
+            'high': high,
+            'low': low,
+        }
+
     try:
         driver = webdriver.Chrome(options=options)
         driver.get(url)
@@ -214,208 +277,108 @@ def fetch_nxt_official(target_date):
         wait.until(EC.presence_of_element_located((By.ID, 'trade1')))
         time.sleep(3)
 
-        # 调试：打印页面上所有 input/select/button 的关键属性，
-        # 这样可以确认 NXT 的日期控件实际是什么，而不是继续猜。
-        try:
-            print('===== NXT 页面控件 =====')
-            for el in driver.find_elements(By.XPATH, '//input|//select|//button'):
-                try:
-                    print({
-                        'tag': el.tag_name,
-                        'type': el.get_attribute('type'),
-                        'id': el.get_attribute('id'),
-                        'name': el.get_attribute('name'),
-                        'value': el.get_attribute('value'),
-                        'class': el.get_attribute('class'),
-                        'text': (el.text or '')[:80],
-                    })
-                except Exception:
-                    pass
-        except Exception as e:
-            print('打印NXT控件失败:', e)
-
-        # V0.9.16：根据真实 XHR 已确认 NXT 日期字段。
-        # POST 参数为 scAggDd=YYYYMMDD，查询按钮 name=searchBtn。
         target_yyyymmdd = target_date.replace('-', '')
-        print(f'NXT查询目标交易日: {target_date} -> scAggDd={target_yyyymmdd}')
+        print(f'NXT直接XHR目标交易日: {target_date} -> scAggDd={target_yyyymmdd}')
 
-        try:
-            date_input = wait.until(EC.presence_of_element_located((By.NAME, 'scAggDd')))
-            driver.execute_script(
-                """
-                arguments[0].removeAttribute('readonly');
-                arguments[0].value = arguments[1];
-                arguments[0].dispatchEvent(new Event('input', {bubbles:true}));
-                arguments[0].dispatchEvent(new Event('change', {bubbles:true}));
-                """,
-                date_input, target_yyyymmdd
+        all_records = []
+        page_index = 1
+        page_unit = 1000
+
+        while page_index <= 10:
+            payload = {
+                'scSecuGroup': 'STOCK',
+                'scAggDd': target_yyyymmdd,
+                '_search': 'false',
+                'nd': str(int(time.time() * 1000)),
+                'pageUnit': str(page_unit),
+                'pageIndex': str(page_index),
+                'sidx': '',
+                'sord': 'asc',
+            }
+
+            script = """
+            const done = arguments[arguments.length - 1];
+            const path = arguments[0];
+            const payload = arguments[1];
+
+            const body = new URLSearchParams(payload).toString();
+
+            fetch(path, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json, text/javascript, */*; q=0.01'
+                },
+                body: body
+            })
+            .then(async r => {
+                const txt = await r.text();
+                done(JSON.stringify({status:r.status, text:txt}));
+            })
+            .catch(err => done(JSON.stringify({status:0, error:String(err)})));
+            """
+
+            raw = driver.execute_async_script(script, api_path, payload)
+            wrapper = json.loads(raw)
+            status = wrapper.get('status', 0)
+            if status != 200:
+                raise RuntimeError(f'NXT XHR HTTP {status}: {wrapper.get("error","")}')
+
+            body_text = wrapper.get('text', '')
+            data = json.loads(body_text)
+
+            records = data.get('brdinfoTimeList') or []
+            total_cnt = int(data.get('totalCnt') or data.get('records') or 0)
+
+            print(
+                f'NXT XHR page={page_index}, '
+                f'本页={len(records)}, totalCnt={total_cnt}, '
+                f'setTime={data.get("setTime")}'
             )
-            print('NXT日期字段已设置:', date_input.get_attribute('value'))
 
-            search_btn = wait.until(EC.element_to_be_clickable((By.NAME, 'searchBtn')))
-            driver.execute_script("arguments[0].click();", search_btn)
-            time.sleep(5)
-            print('NXT查询后日期字段:', date_input.get_attribute('value'))
-        except Exception as e:
-            raise RuntimeError(f'NXT日期/查询按钮设置失败: {e}')
+            if page_index == 1 and records:
+                print('NXT首条字段:', list(records[0].keys()) if isinstance(records[0], dict) else type(records[0]))
+                print('NXT首条样本:', json.dumps(records[0], ensure_ascii=False)[:3000])
 
-        # 尽量把“每页显示数量”调到最大，减少翻页。
-        try:
-            for sel_el in driver.find_elements(By.TAG_NAME, 'select'):
-                try:
-                    sel = Select(sel_el)
-                    numeric = []
-                    for op in sel.options:
-                        val = (op.get_attribute('value') or '').strip()
-                        txt = (op.text or '').strip()
-                        cand = val if val.isdigit() else txt.replace(',', '')
-                        if cand.isdigit():
-                            numeric.append((int(cand), op))
-                    if numeric:
-                        n, op = max(numeric, key=lambda x: x[0])
-                        if 20 <= n <= 5000:
-                            sel.select_by_visible_text(op.text)
-                            time.sleep(2)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+            all_records.extend(records)
 
-        seen_signatures = set()
-
-        for page_no in range(1, 80):
-            time.sleep(1.0)
-            rows = driver.find_elements(By.XPATH, "//table[@id='trade1']/tbody/tr")
-            page_codes = []
-
-            for row in rows:
-                cells = [c.text.strip() for c in row.find_elements(By.TAG_NAME, 'td')]
-                if len(cells) < 5:
-                    continue
-
-                code_match = None
-                for c in cells[:3]:
-                    m = re.search(r'(?<!\d)(\d{6})(?!\d)', c.replace(' ', ''))
-                    if m:
-                        code_match = m.group(1)
-                        break
-                if not code_match:
-                    continue
-
-                # 官方列顺序：
-                # 종목코드, 종목명, 상장시장, 현재가, 대비, 등락률, 시가, 고가, 저가, 거래량, 거래대금 ...
-                try:
-                    code = code_match
-                    price = si(cells[3])
-                    pct = sf(cells[5]) if len(cells) > 5 else 0
-                    high = si(cells[7]) if len(cells) > 7 else 0
-                    low = si(cells[8]) if len(cells) > 8 else 0
-                    volume = si(cells[9]) if len(cells) > 9 else 0
-                    value = si(cells[10]) if len(cells) > 10 else 0
-                except Exception:
-                    continue
-
-                if price > 0 and (volume > 0 or value > 0):
-                    out[code] = {
-                        'price': price,
-                        'pct': pct,
-                        'volume': volume,
-                        'value': value,
-                        'high': high,
-                        'low': low,
-                    }
-                    page_codes.append(code)
-
-            sig = tuple(page_codes[:3] + page_codes[-3:])
-            if not page_codes or sig in seen_signatures:
+            if not records:
                 break
-            seen_signatures.add(sig)
-
-            # 找“下一页”。如果没有，就说明已经是最后一页或一次性显示全部。
-            next_candidates = driver.find_elements(
-                By.XPATH,
-                "//a[contains(normalize-space(.),'다음') or contains(@class,'next') or contains(@title,'다음')]"
-                " | //button[contains(normalize-space(.),'다음') or contains(@class,'next') or contains(@title,'다음')]"
-            )
-            clicked = False
-            for btn in next_candidates:
-                try:
-                    cls = (btn.get_attribute('class') or '').lower()
-                    aria = (btn.get_attribute('aria-disabled') or '').lower()
-                    if 'disabled' in cls or aria == 'true':
-                        continue
-                    driver.execute_script("arguments[0].click();", btn)
-                    time.sleep(2)
-                    clicked = True
-                    break
-                except Exception:
-                    pass
-            if not clicked:
+            if total_cnt and len(all_records) >= total_cnt:
                 break
+            if len(records) < page_unit:
+                break
+            page_index += 1
 
+        for r in all_records:
+            parsed = parse_record(r)
+            if parsed:
+                code, vals = parsed
+                # 只保留当天确实有成交量/成交额的 NXT 股票
+                if vals['volume'] > 0 or vals['value'] > 0:
+                    out[code] = vals
+
+        print(f'NXT官方XHR原始记录: {len(all_records)}只')
         print(f'NXT官方收盘数据: {len(out)}只')
 
-        # 如果没有抓到表格数据，输出浏览器实际访问过的 XHR/fetch/API URL。
-        # 下一版可直接改成 requests 调接口，不再依赖 Selenium 点网页。
+        if len(all_records) >= 300 and len(out) < 300:
+            # 接口已经通，但字段名若有差异，不允许错误覆盖旧数据。
+            sample = all_records[0] if all_records else {}
+            raise RuntimeError(
+                'NXT接口已取得数据，但字段解析不足300只。'
+                f' 首条样本={json.dumps(sample, ensure_ascii=False)[:1200]}'
+            )
+
         if len(out) < 300:
-            try:
-                print('===== NXT 网络请求候选 =====')
-                seen = set()
-                for item in driver.get_log('performance'):
-                    try:
-                        msg = json.loads(item['message'])['message']
-                        if msg.get('method') != 'Network.requestWillBeSent':
-                            continue
-                        params = msg.get('params', {})
-                        req = params.get('request', {})
-                        url2 = req.get('url', '')
-                        rtype = params.get('type', '')
-                        if not url2 or url2 in seen:
-                            continue
-                        seen.add(url2)
-                        low = url2.lower()
-                        if ('nextrade.co.kr' in low and
-                            any(k in low for k in ('transaction', 'ajax', 'api', 'list', 'trade', 'market', 'status', 'brdinfo'))):
-                            print(f'[{rtype}] {url2}')
-                            if 'brdinfolist.do' in low or 'brdinfotime/brdinfotimelist.do' in low:
-                                print('--- 关键XHR请求详情 ---')
-                                print('method:', req.get('method'))
-                                print('postData:', req.get('postData'))
-                                print('headers:', json.dumps(req.get('headers', {}), ensure_ascii=False))
-                                rid = params.get('requestId')
-                                if rid:
-                                    try:
-                                        body = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': rid})
-                                        print('responseBody前5000字符:')
-                                        print((body.get('body') or '')[:5000])
-                                    except Exception as ee:
-                                        print('读取XHR响应体失败:', ee)
-                    except Exception:
-                        pass
-            except Exception as e:
-                print('读取NXT网络日志失败:', e)
-
-            try:
-                print('===== NXT 浏览器 Cookies =====')
-                print(json.dumps(driver.get_cookies(), ensure_ascii=False))
-            except Exception as e:
-                print('读取Cookies失败:', e)
-
-            # 额外输出 trade1 表格的当前 HTML 前3000字符，便于判断数据由何种脚本注入。
-            try:
-                table_html = driver.find_element(By.ID, 'trade1').get_attribute('outerHTML')
-                print('===== trade1 HTML 前3000字符 =====')
-                print((table_html or '')[:3000])
-            except Exception as e:
-                print('读取trade1 HTML失败:', e)
-
             raise RuntimeError(f'NXT官方数据仅抓到 {len(out)} 只，数量异常')
+
         return out
 
     finally:
         if driver is not None:
             driver.quit()
-
 
 def apply_snapshot(hist, quote):
     """把今天最终盘口写回最后一根K线，之后筛选与图表使用同一基准。"""
