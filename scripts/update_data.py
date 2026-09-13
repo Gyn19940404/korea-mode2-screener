@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.12 NXT官方20:00收盘版（修复re导入）
+V0.9.13 NXT官方20:00收盘版（休市日自动回退最新交易日）
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -187,7 +187,7 @@ def fetch_quote(code):
     return None
 
 
-def fetch_nxt_official():
+def fetch_nxt_official(target_date):
     """
     从 NXT 官方“正規市场(종목)”页面读取最终数据。
     官方页面注明行情约20分钟延迟，因此自动任务放到20:30(KST)运行。
@@ -210,7 +210,64 @@ def fetch_nxt_official():
 
         wait = WebDriverWait(driver, 30)
         wait.until(EC.presence_of_element_located((By.ID, 'trade1')))
-        time.sleep(4)
+        time.sleep(2)
+
+        # NXT官网默认使用“今天”。周末/休市日会得到0只，因此必须改成
+        # 我们历史数据里的最新交易日，例如周日运行时自动查询上周五。
+        print(f'NXT查询目标交易日: {target_date}')
+        date_set = False
+        date_inputs = driver.find_elements(
+            By.XPATH,
+            "//input[@type='date' or contains(translate(@name,'DATE','date'),'date') "
+            "or contains(translate(@id,'DATE','date'),'date')]"
+        )
+        for inp in date_inputs:
+            try:
+                typ = (inp.get_attribute('type') or '').lower()
+                oldv = (inp.get_attribute('value') or '').strip()
+                if typ == 'date' or '-' in oldv:
+                    val = target_date
+                elif '.' in oldv:
+                    val = target_date.replace('-', '.')
+                else:
+                    val = target_date.replace('-', '')
+                driver.execute_script(
+                    """
+                    arguments[0].removeAttribute('readonly');
+                    arguments[0].value = arguments[1];
+                    arguments[0].dispatchEvent(new Event('input', {bubbles:true}));
+                    arguments[0].dispatchEvent(new Event('change', {bubbles:true}));
+                    """,
+                    inp, val
+                )
+                date_set = True
+            except Exception:
+                pass
+
+        if not date_set:
+            print('警告: 未识别到NXT日期输入框，继续尝试默认页面')
+
+        # 点击“조회/查询”按钮，让页面按目标交易日重新加载。
+        search_buttons = driver.find_elements(
+            By.XPATH,
+            "//button[contains(normalize-space(.),'조회')] | "
+            "//a[contains(normalize-space(.),'조회')] | "
+            "//input[@type='button' and contains(@value,'조회')] | "
+            "//input[@type='submit' and contains(@value,'조회')]"
+        )
+        clicked_search = False
+        for btn in search_buttons:
+            try:
+                if btn.is_displayed() and btn.is_enabled():
+                    driver.execute_script("arguments[0].click();", btn)
+                    clicked_search = True
+                    break
+            except Exception:
+                pass
+        if clicked_search:
+            time.sleep(5)
+        else:
+            print('警告: 未找到NXT查询按钮')
 
         # 尽量把“每页显示数量”调到最大，减少翻页。
         try:
@@ -445,7 +502,9 @@ def main():
         raise RuntimeError(f'当日快照只有 {len(quotes)} 只，拒绝覆盖 stocks_data.js')
 
     # 3) NXT 官方20:00最终数据（官网约20分钟延迟，因此任务安排在20:30 KST）
-    nxt_official = fetch_nxt_official()
+    latest_trade_date = max(h[-1][0] for h in histories.values() if h)
+    print(f'历史数据最新交易日: {latest_trade_date}')
+    nxt_official = fetch_nxt_official(latest_trade_date)
 
     # 把 NXT 官方最终价/成交量/成交额合并进 KRX 快照
     merged_nxt = 0
