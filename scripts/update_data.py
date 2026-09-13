@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.13 NXT官方20:00收盘版（休市日自动回退最新交易日）
+V0.9.14 NXT接口自动诊断版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -201,6 +201,8 @@ def fetch_nxt_official(target_date):
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
     options.add_argument(f'--user-agent={UA}')
+    # 记录浏览器网络请求，用来自动发现 NXT 页面背后的 XHR/API。
+    options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
 
     driver = None
     out = {}
@@ -210,7 +212,27 @@ def fetch_nxt_official(target_date):
 
         wait = WebDriverWait(driver, 30)
         wait.until(EC.presence_of_element_located((By.ID, 'trade1')))
-        time.sleep(2)
+        time.sleep(3)
+
+        # 调试：打印页面上所有 input/select/button 的关键属性，
+        # 这样可以确认 NXT 的日期控件实际是什么，而不是继续猜。
+        try:
+            print('===== NXT 页面控件 =====')
+            for el in driver.find_elements(By.XPATH, '//input|//select|//button'):
+                try:
+                    print({
+                        'tag': el.tag_name,
+                        'type': el.get_attribute('type'),
+                        'id': el.get_attribute('id'),
+                        'name': el.get_attribute('name'),
+                        'value': el.get_attribute('value'),
+                        'class': el.get_attribute('class'),
+                        'text': (el.text or '')[:80],
+                    })
+                except Exception:
+                    pass
+        except Exception as e:
+            print('打印NXT控件失败:', e)
 
         # NXT官网默认使用“今天”。周末/休市日会得到0只，因此必须改成
         # 我们历史数据里的最新交易日，例如周日运行时自动查询上周五。
@@ -364,7 +386,42 @@ def fetch_nxt_official(target_date):
                 break
 
         print(f'NXT官方收盘数据: {len(out)}只')
+
+        # 如果没有抓到表格数据，输出浏览器实际访问过的 XHR/fetch/API URL。
+        # 下一版可直接改成 requests 调接口，不再依赖 Selenium 点网页。
         if len(out) < 300:
+            try:
+                print('===== NXT 网络请求候选 =====')
+                seen = set()
+                for item in driver.get_log('performance'):
+                    try:
+                        msg = json.loads(item['message'])['message']
+                        if msg.get('method') != 'Network.requestWillBeSent':
+                            continue
+                        params = msg.get('params', {})
+                        req = params.get('request', {})
+                        url2 = req.get('url', '')
+                        rtype = params.get('type', '')
+                        if not url2 or url2 in seen:
+                            continue
+                        seen.add(url2)
+                        low = url2.lower()
+                        if ('nextrade.co.kr' in low and
+                            any(k in low for k in ('transaction', 'ajax', 'api', 'list', 'trade', 'market', 'status'))):
+                            print(f'[{rtype}] {url2}')
+                    except Exception:
+                        pass
+            except Exception as e:
+                print('读取NXT网络日志失败:', e)
+
+            # 额外输出 trade1 表格的当前 HTML 前3000字符，便于判断数据由何种脚本注入。
+            try:
+                table_html = driver.find_element(By.ID, 'trade1').get_attribute('outerHTML')
+                print('===== trade1 HTML 前3000字符 =====')
+                print((table_html or '')[:3000])
+            except Exception as e:
+                print('读取trade1 HTML失败:', e)
+
             raise RuntimeError(f'NXT官方数据仅抓到 {len(out)} 只，数量异常')
         return out
 
