@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.21 NXT股票代码直接解析版
+V0.9.22 NXT成交量成交额字段容错版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -215,7 +215,7 @@ def fetch_nxt_official(target_date):
         return None
 
     def parse_record(r):
-        # V0.9.21：完全按 NXT 实际字段解析，并彻底取消股票代码正则。
+        # V0.9.22：按 NXT 实际 JSON 解析，并对成交量/成交额字段做容错匹配。
         if not isinstance(r, dict):
             return None
 
@@ -228,8 +228,30 @@ def fetch_nxt_official(target_date):
         pct = sf(r.get('upDownRate'))
         high = si(r.get('hgpr'))
         low = si(r.get('lwpr'))
-        volume = si(r.get('acctTdQty'))
-        value = si(r.get('acctTrVal'))
+
+        # NXT字段名曾出现细微差异；这里不再只依赖一个固定拼写。
+        volume_raw = (
+            r.get('acctTdQty')
+            if r.get('acctTdQty') is not None else
+            r.get('acctQty')
+        )
+        value_raw = (
+            r.get('acctTrVal')
+            if r.get('acctTrVal') is not None else
+            r.get('accTrVal')
+        )
+
+        # 若固定字段仍未命中，则按字段名语义兜底。
+        if volume_raw is None or value_raw is None:
+            for k, v in r.items():
+                nk = str(k).lower().replace('_', '')
+                if volume_raw is None and nk.startswith('acct') and 'qty' in nk:
+                    volume_raw = v
+                if value_raw is None and nk.startswith('acct') and ('trval' in nk or 'value' in nk):
+                    value_raw = v
+
+        volume = si(volume_raw)
+        value = si(value_raw)
 
         if price <= 0:
             return None
@@ -329,6 +351,9 @@ def fetch_nxt_official(target_date):
         for idx, r in enumerate(all_records):
             parsed = parse_record(r)
             if idx == 0:
+                print('NXT首条原始成交字段:',
+                      {k: v for k, v in r.items()
+                       if ('qty' in str(k).lower() or 'val' in str(k).lower())})
                 print('NXT首条解析结果:', parsed)
             if parsed:
                 code, vals = parsed
