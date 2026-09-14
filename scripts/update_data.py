@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.18 NXT真实字段解析修复版
+V0.9.19 NXT官网精确字段版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -215,47 +215,23 @@ def fetch_nxt_official(target_date):
         return None
 
     def parse_record(r):
+        # V0.9.19：完全按 NXT 实际返回字段解析，不再使用猜测字段名。
         if not isinstance(r, dict):
             return None
 
-        code = pick(
-            r, 'isuSrdCd', 'isuSrtCd', 'isuCd', 'shortCode', 'code', 'stockCode',
-            'symbol', 'isuNo', 'stckShrnIsin'
-        )
-        if code is not None:
-            m = re.search(r'(\d{6})', str(code))
-            code = m.group(1) if m else None
-        if not code:
+        raw_code = str(r.get('isuSrdCd') or '').strip()   # 例: A000660
+        m = re.search(r'(\\d{6})$', raw_code)
+        if not m:
             return None
+        code = m.group(1)
 
-        price = pick(
-            r, 'curPrc', 'curPrice', 'nowPrc', 'nowPrice', 'price',
-            'stckPrpr', 'currentPrice', 'closPrc'
-        )
-        pct = pick(
-            r, 'upDownRate', 'fluctuationRate', 'changeRate', 'pct',
-            'rate', 'prdyCtrt'
-        )
-        high = pick(r, 'hgpr', 'hgPrc', 'highPrc', 'highPrice', 'high', 'stckHgpr')
-        low = pick(r, 'lwpr', 'lwPrc', 'lowPrc', 'lowPrice', 'low', 'stckLwpr')
-        volume = pick(
-            r, 'acctQty', 'accTrdvol', 'accTrdVol', 'trdVol', 'volume',
-            'accVolume', 'acmlVol'
-        )
-        value = pick(
-            r, 'acctTrVal', 'accTrdval', 'accTrdVal', 'trdVal', 'value',
-            'accValue', 'acmlTrPbmn'
-        )
-
-        try:
-            price = si(price)
-            pct = sf(pct) if pct is not None else 0
-            high = si(high) if high is not None else 0
-            low = si(low) if low is not None else 0
-            volume = si(volume) if volume is not None else 0
-            value = si(value) if value is not None else 0
-        except Exception:
-            return None
+        price = si(r.get('curPrc'))                       # 当前价
+        pct = sf(r.get('upDownRate'))                     # 涨跌幅
+        high = si(r.get('hgpr'))                          # 最高价
+        low = si(r.get('lwpr'))                           # 最低价
+        # 官网真实字段是 acctTdQty（不是 acctQty）
+        volume = si(r.get('acctTdQty'))
+        value = si(r.get('acctTrVal'))                    # 成交额
 
         if price <= 0:
             return None
@@ -356,9 +332,8 @@ def fetch_nxt_official(target_date):
             parsed = parse_record(r)
             if parsed:
                 code, vals = parsed
-                # 只保留当天确实有成交量/成交额的 NXT 股票
-                if vals['volume'] > 0 or vals['value'] > 0:
-                    out[code] = vals
+                # 官方接口返回的该交易日股票直接纳入；成交量/成交额按真实字段保存。
+                out[code] = vals
 
         print(f'NXT官方XHR原始记录: {len(all_records)}只')
         print(f'NXT官方收盘数据: {len(out)}只')
