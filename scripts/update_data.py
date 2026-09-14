@@ -529,6 +529,8 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
         'daychg': ((p / prev - 1) * 100) if prev else 0,
         'week': week, 'turnover': turn, 'prevTurnover': prev_turn, 'avgturn': av, 'minTurn20': mn,
         'volume': si(quote.get('volume')) if quote else si(h[-1][5]),
+        'naverVolume': si(quote.get('krxVolume')) if quote else 0,
+        'nxtVolume': si(quote.get('nxtVolume')) if quote else 0,
         'isPreferred': bool(re.search(r'(?:\d+우B|\d+우|우B|우)$', str(name or '').strip())),
         'streak': streak, 'ma5': m5, 'ma10': m10, 'ma20': m20,
         'ma30': m30, 'ma60': m60, 'ma120': m120,
@@ -713,7 +715,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'V0.9.27成交量诊断：NXT最终价；Toss成交量= NAVER aq（不叠加NXT）；近20日历史成交额补NXT；prevTurnover=上一交易日；市值按Toss口径；前端默认排除优先股',
+        'snapshot_rule': 'V0.9.28成交量同源对比：NXT最终价；Toss成交量= NAVER aq（不叠加NXT）；近20日历史成交额补NXT；prevTurnover=上一交易日；市值按Toss口径；前端默认排除优先股',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
