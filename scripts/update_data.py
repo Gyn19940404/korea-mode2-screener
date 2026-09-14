@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.22 NXT成交量成交额字段容错版
+V0.9.23 Toss市值成交额口径修正版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
-- 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
-- 当日市值：最终价 × 上市股数
+- 当日成交额：NAVER polling 的综合成交额优先；NXT仅在NAVER值缺失时补充，避免重复相加
+- 当日市值：采用FDR/KRX当日市值，并把同一公司的优先股/种类股市值合并到普通股，贴近Toss公司市值口径
 - 当天涨幅：最终价相对前收盘价
 
-目的：让“现价 / 当天涨幅 / 当天成交额 / 市值”尽量与 Toss 在 NXT 收盘后的口径一致。
+目的：修复V0.9.22中NXT成交额重复相加、市值用NXT价×普通股股数导致与Toss不一致的问题。
 历史旧数据的成交额仍可能是近似值；从本版本开始每天保存精确成交额与 NXT 最终价。
 """
 import gzip, json, time, threading, re
@@ -410,7 +410,7 @@ def apply_snapshot(hist, quote):
     return out
 
 
-def build(code, name, market, listing_marcap, h, quote):
+def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
     if len(h) < 20:
         return None
     h = apply_snapshot(h, quote)
@@ -446,9 +446,9 @@ def build(code, name, market, listing_marcap, h, quote):
     score = round(min(85, trend + pos + strength + liq + 5))
     grade = 'A' if score >= 80 else ('B' if score >= 68 else 'C')
 
-    # Toss/NXT收盘口径：用最终价×上市股数重算市值；无上市股数时回退FDR listing市值。
-    listed = si(quote.get('listedShares')) if quote else 0
-    marcap = p * listed if p > 0 and listed > 0 else listing_marcap
+    # Toss筛选器的市值不是简单用NXT最终价×普通股股数。
+    # 使用FDR/KRX当日市值；普通股若存在优先股/种类股，则使用公司合并市值。
+    marcap = si(toss_marcap) if si(toss_marcap) > 0 else si(listing_marcap)
 
     return {
         'name': name, 'code': code, 'sector': '板块待接入', 'market': market,
@@ -466,8 +466,42 @@ def build(code, name, market, listing_marcap, h, quote):
     }
 
 
+
+def company_root_name(name):
+    """把常见优先股/种类股名称归到普通股公司名，用于Toss式公司总市值。"""
+    n = str(name or '').strip()
+    # 常见：삼성전자우 / 현대차2우B / LG화학우 / 한화3우B
+    n = re.sub(r'(?:\d+우B|\d+우|우B|우)$', '', n)
+    return n.strip()
+
+
+def build_toss_marcap_map(u):
+    """FDR/KRX当日市值 + 同公司种类股合并。普通股使用公司总市值，种类股保留自身市值。"""
+    own = {}
+    groups = {}
+    names = {}
+    for _, r in u.iterrows():
+        c = str(r.get('Code', '')).zfill(6)
+        n = str(r.get('Name', c))
+        mc = si(r.get('Marcap', r.get('MarketCap', 0)))
+        own[c] = mc
+        names[c] = n
+        root = company_root_name(n)
+        if root:
+            groups[root] = groups.get(root, 0) + mc
+
+    out = {}
+    for c, mc in own.items():
+        n = names[c]
+        root = company_root_name(n)
+        is_class_share = (root != n)
+        out[c] = mc if is_class_share else max(mc, groups.get(root, mc))
+    return out
+
 def main():
     u = universe()
+    toss_marcap_map = build_toss_marcap_map(u)
+    print('Toss市值口径映射完成:', len(toss_marcap_map), '只')
     cache = load_cache()
     print('股票总数:', len(u), '缓存股票:', len(cache))
 
@@ -533,7 +567,11 @@ def main():
 
         q['price'] = nx_price
         q['daychg'] = ((nx_price / q['prevClose'] - 1) * 100) if q.get('prevClose') else sf(nx.get('pct'))
-        q['turnoverWon'] = si(q.get('turnoverWon')) + nx_value
+        # NAVER polling 的 aa 在盘后已是综合成交额口径，不能再叠加NXT，否则会重复计算。
+        # 只有NAVER成交额缺失时才用NXT成交额兜底。
+        if si(q.get('turnoverWon')) <= 0:
+            q['turnoverWon'] = nx_value
+        # 成交量 polling aq 仍按KRX主场量处理，与NXT量相加可对齐Toss综合成交量。
         q['volume'] = si(q.get('volume')) + nx_volume
         merged_nxt += 1
 
@@ -549,7 +587,7 @@ def main():
 
     res = []
     for c, n, m, mc in jobs:
-        x = build(c, n, m, mc, histories.get(c, []), quotes.get(c))
+        x = build(c, n, m, mc, histories.get(c, []), quotes.get(c), toss_marcap_map.get(c, mc))
         if x:
             res.append(x)
 
