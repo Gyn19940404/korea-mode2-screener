@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.19 NXT官网精确字段版
+V0.9.20 NXT代码正则修复版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
