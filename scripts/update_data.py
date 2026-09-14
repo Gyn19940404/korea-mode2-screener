@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.20 NXT代码正则修复版
+V0.9.21 NXT股票代码直接解析版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -215,23 +215,21 @@ def fetch_nxt_official(target_date):
         return None
 
     def parse_record(r):
-        # V0.9.19：完全按 NXT 实际返回字段解析，不再使用猜测字段名。
+        # V0.9.21：完全按 NXT 实际字段解析，并彻底取消股票代码正则。
         if not isinstance(r, dict):
             return None
 
         raw_code = str(r.get('isuSrdCd') or '').strip()   # 例: A000660
-        m = re.search(r'(\\d{6})$', raw_code)
-        if not m:
+        code = raw_code[-6:] if len(raw_code) >= 6 else ''
+        if len(code) != 6 or not code.isdigit():
             return None
-        code = m.group(1)
 
-        price = si(r.get('curPrc'))                       # 当前价
-        pct = sf(r.get('upDownRate'))                     # 涨跌幅
-        high = si(r.get('hgpr'))                          # 最高价
-        low = si(r.get('lwpr'))                           # 最低价
-        # 官网真实字段是 acctTdQty（不是 acctQty）
+        price = si(r.get('curPrc'))
+        pct = sf(r.get('upDownRate'))
+        high = si(r.get('hgpr'))
+        low = si(r.get('lwpr'))
         volume = si(r.get('acctTdQty'))
-        value = si(r.get('acctTrVal'))                    # 成交额
+        value = si(r.get('acctTrVal'))
 
         if price <= 0:
             return None
@@ -328,11 +326,12 @@ def fetch_nxt_official(target_date):
                 break
             page_index += 1
 
-        for r in all_records:
+        for idx, r in enumerate(all_records):
             parsed = parse_record(r)
+            if idx == 0:
+                print('NXT首条解析结果:', parsed)
             if parsed:
                 code, vals = parsed
-                # 官方接口返回的该交易日股票直接纳入；成交量/成交额按真实字段保存。
                 out[code] = vals
 
         print(f'NXT官方XHR原始记录: {len(all_records)}只')
