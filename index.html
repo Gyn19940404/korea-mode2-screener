@@ -66,17 +66,17 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.9.8 对表调试版：保留现有筛选逻辑，并在主表增加“近N日涨幅 / 连续上涨天数 / 近N日平均成交额”三列，专门用于与 Toss 条件逐只对表。</div>
+<div class="notice">V0.9.24 Toss对表版：新增“1天前成交额”，用于直接对应 Toss 的 거래대금 · 하루 전 条件；当日成交额仍保留。</div>
 <div class="card filters">
 <div class="f" data-filter="capOn"><input id="capOn" type="checkbox" checked>市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
 <div class="f" data-filter="chgOn"><input id="chgOn" type="checkbox" checked>近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
-<div class="f" data-filter="turnOn"><input id="turnOn" type="checkbox" checked>近 <input id="turnDays" type="number" min="1" max="240" value="20"> 日 <select id="turnMode" title="成交额口径"><option value="avg" selected>平均成交额</option><option value="every">每天成交额</option></select> ≥ <input id="minturn20" type="number" value="500"> 亿</div>
+<div class="f" data-filter="turnOn"><input id="turnOn" type="checkbox" checked>近 <input id="turnDays" type="number" min="1" max="240" value="20"> 日 <select id="turnMode" title="成交额口径"><option value="avg" selected>平均成交额</option><option value="every">每天成交额</option><option value="prev">1天前成交额</option></select> ≥ <input id="minturn20" type="number" value="500"> 亿</div>
 <div class="f" data-filter="distOn"><input id="distOn" type="checkbox" checked>距5日线 <input id="distMin" type="number" step=".1" value="-1.5">% ～ <input id="distMax" type="number" step=".1" value="1.5">%</div>
 <div class="f" data-filter="streakOn"><input id="streakOn" type="checkbox">连续上涨 ≥ <input id="streak" type="number" value="5">日</div>
 <button onclick="render()">刷新筛选</button><div class="f" style="background:#fff;color:#5b6472">候选 <b id="candidateCount">0</b> 只</div>
 </div>
 <div class="card"><table>
-<thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="mode2" data-key="price" onclick="setSort('mode2','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="daychg" onclick="setSort('mode2','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th>近N日涨幅</th><th>连续上涨</th><th>近N日平均成交额</th><th class="sort-th" data-view="mode2" data-key="turnover" onclick="setSort('mode2','turnover')"><span class="sort-label">当天成交额(亿) <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="marketCapTrillion" onclick="setSort('mode2','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="mode2" data-key="dist" onclick="setSort('mode2','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="mode2" data-key="score" onclick="setSort('mode2','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>结果</th><th>操作</th></tr></thead>
+<thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="mode2" data-key="price" onclick="setSort('mode2','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="daychg" onclick="setSort('mode2','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th>近N日涨幅</th><th>连续上涨</th><th>近N日平均成交额</th><th>1天前成交额(亿)</th><th class="sort-th" data-view="mode2" data-key="turnover" onclick="setSort('mode2','turnover')"><span class="sort-label">当天成交额(亿) <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="marketCapTrillion" onclick="setSort('mode2','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="mode2" data-key="dist" onclick="setSort('mode2','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="mode2" data-key="score" onclick="setSort('mode2','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>结果</th><th>操作</th></tr></thead>
 <tbody id="tb"></tbody></table></div>
 </section>
 <section id="panel-sectors" class="side-panel">
@@ -175,7 +175,7 @@ function passes(s){
  const chg=periodChange(s,num("chgDays",5));
  const minTurn=minTurnForDays(s,num("turnDays",20));
  const avgTurn=avgTurnForDays(s,num("turnDays",20));
- const turnMetric=$("turnMode")?.value==="every" ? minTurn : avgTurn;
+ const turnMetric=$("turnMode")?.value==="prev" ? (Number(s.prevTurnover)||0) : ($("turnMode")?.value==="every" ? minTurn : avgTurn);
  const [distLo,distHi]=distBounds();
  if(enabled("capOn") && capYi < num("cap")) return false;
  if(enabled("chgOn") && (!Number.isFinite(chg) || chg<num("wmin") || chg>num("wmax"))) return false;
@@ -237,7 +237,7 @@ function render(){
  const dbgChg=periodChange(s,num("chgDays",5));
  const dbgStreak=Number(s.streak)||0;
  const dbgAvgTurn=avgTurnForDays(s,num("turnDays",20));
- tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td class="${dbgChg>=0?'up':'down'}">${dbgChg>=0?'+':''}${dbgChg.toFixed(2)}%</td><td>${dbgStreak}日</td><td>${dbgAvgTurn.toFixed(1)}亿</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')||(s.dist>=lo&&s.dist<=hi)?'good':'';})()}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
+ tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td class="${dbgChg>=0?'up':'down'}">${dbgChg>=0?'+':''}${dbgChg.toFixed(2)}%</td><td>${dbgStreak}日</td><td>${dbgAvgTurn.toFixed(1)}亿</td><td>${(Number(s.prevTurnover)||0).toFixed(1)}</td><td>${s.turnover.toFixed(1)}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')||(s.dist>=lo&&s.dist<=hi)?'good':'';})()}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
  tb.appendChild(tr)})
 }
 function detail(code){
@@ -250,10 +250,10 @@ function detail(code){
  <div class="metric"><span>30日线</span><b>${fmt(s.ma30)}원</b></div>
  <div class="metric"><span>60日线</span><b>${fmt(s.ma60)}원</b></div>
  <div class="metric"><span>120日线</span><b>${fmt(s.ma120||0)}원</b></div>
- <div class="metric"><span>近${clampDays(num("turnDays",20),1,240)}日${$("turnMode")?.value==="every"?"最低单日":"平均"}成交额</span><b>${($("turnMode")?.value==="every"?minTurnForDays(s,num("turnDays",20)):avgTurnForDays(s,num("turnDays",20))).toFixed(1)}亿</b></div>`;
+ <div class="metric"><span>近${clampDays(num("turnDays",20),1,240)}日${$("turnMode")?.value==="prev"?"1天前":($("turnMode")?.value==="every"?"最低单日":"平均")}成交额</span><b>${($("turnMode")?.value==="prev"?(Number(s.prevTurnover)||0):($("turnMode")?.value==="every"?minTurnForDays(s,num("turnDays",20)):avgTurnForDays(s,num("turnDays",20)))).toFixed(1)}亿</b></div>`;
  checks.innerHTML=`<h3>筛选检查</h3>
  <div class="reason">${!enabled('chgOn')?'⚪':(periodChange(s,num('chgDays',5))>=num('wmin')&&periodChange(s,num('chgDays',5))<=num('wmax')?'✅':'❌')} 近${clampDays(num('chgDays',5),1,239)}日涨幅 ${periodChange(s,num('chgDays',5)).toFixed(2)}%${!enabled('chgOn')?' · 未启用':''}</div>
- <div class="reason">${(()=>{const v=$("turnMode")?.value==="every"?minTurnForDays(s,num('turnDays',20)):avgTurnForDays(s,num('turnDays',20));return !enabled('turnOn')?'⚪':(v>=num('minturn20')?'✅':'❌')})()} 近${clampDays(num('turnDays',20),1,240)}日${$("turnMode")?.value==="every"?'最低单日':'平均'}成交额 ${($("turnMode")?.value==="every"?minTurnForDays(s,num('turnDays',20)):avgTurnForDays(s,num('turnDays',20))).toFixed(1)}亿${!enabled('turnOn')?' · 未启用':''}</div>
+ <div class="reason">${(()=>{const v=$("turnMode")?.value==="prev"?(Number(s.prevTurnover)||0):($("turnMode")?.value==="every"?minTurnForDays(s,num('turnDays',20)):avgTurnForDays(s,num('turnDays',20)));return !enabled('turnOn')?'⚪':(v>=num('minturn20')?'✅':'❌')})()} ${$("turnMode")?.value==="prev"?'1天前成交额':('近'+clampDays(num('turnDays',20),1,240)+'日'+($("turnMode")?.value==="every"?'最低单日':'平均')+'成交额')} ${($("turnMode")?.value==="prev"?(Number(s.prevTurnover)||0):($("turnMode")?.value==="every"?minTurnForDays(s,num('turnDays',20)):avgTurnForDays(s,num('turnDays',20)))).toFixed(1)}亿${!enabled('turnOn')?' · 未启用':''}</div>
  <div class="reason">${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')?'⚪':(s.dist>=lo&&s.dist<=hi?'✅':'❌')})()} 距5日线 ${s.dist.toFixed(2)}%${!enabled('distOn')?' · 未启用':''}</div>
  <div class="reason">${!enabled('streakOn')?'⚪':(Number(s.streak)>=num('streak')?'✅':'❌')} ${s.streak} 日连续上涨${!enabled('streakOn')?' · 未启用':''}</div>`;
  drawMinute(s); drawDay(s); bindCharts(); drawer.classList.add("open");
