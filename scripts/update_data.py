@@ -7,7 +7,7 @@ V0.9.24 Toss「1天前成交额」对齐版
 - 当日市值：采用FDR/KRX当日市值，并把同一公司的优先股/种类股市值合并到普通股，贴近Toss公司市值口径
 - 当天涨幅：最终价相对前收盘价
 
-目的：修复V0.9.22中NXT成交额重复相加、市值用NXT价×普通股股数导致与Toss不一致的问题。
+目的：修复V0.9.25：保留已对齐的NXT现价与Toss市值；补近20个交易日NXT历史成交额，并输出综合成交量；默认筛选排除优先股。
 历史旧数据的成交额仍可能是近似值；从本版本开始每天保存精确成交额与 NXT 最终价。
 """
 import gzip, json, time, threading, re
@@ -379,6 +379,75 @@ def fetch_nxt_official(target_date):
         if driver is not None:
             driver.quit()
 
+def fetch_nxt_history_values(trade_dates):
+    """一次Chrome会话批量抓取指定交易日的NXT成交额，返回 {date:{code:valueWon}}。"""
+    dates = [str(d) for d in trade_dates if d]
+    if not dates:
+        return {}
+    url = 'https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do'
+    api_path = '/brdinfoTime/brdinfoTimeList.do'
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless=new'); options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage'); options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080'); options.add_argument(f'--user-agent={UA}')
+    driver = None
+    result = {}
+    script = """
+    const done = arguments[arguments.length - 1];
+    const body = new URLSearchParams(arguments[1]).toString();
+    fetch(arguments[0], {method:'POST', credentials:'same-origin', headers:{
+      'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
+      'X-Requested-With':'XMLHttpRequest','Accept':'application/json, text/javascript, */*; q=0.01'
+    }, body}).then(async r=>done(JSON.stringify({status:r.status,text:await r.text()})))
+      .catch(err=>done(JSON.stringify({status:0,error:String(err)})));
+    """
+    try:
+        driver = webdriver.Chrome(options=options)
+        driver.get(url)
+        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, 'trade1')))
+        time.sleep(2)
+        for i, d in enumerate(dates, 1):
+            payload={'scSecuGroup':'STOCK','scAggDd':d.replace('-',''),'_search':'false',
+                     'nd':str(int(time.time()*1000)),'pageUnit':'1000','pageIndex':'1','sidx':'','sord':'asc'}
+            raw=driver.execute_async_script(script, api_path, payload)
+            wrap=json.loads(raw)
+            if wrap.get('status') != 200:
+                print(f'[NXT历史跳过] {d}: HTTP {wrap.get("status")}')
+                continue
+            data=json.loads(wrap.get('text','{}'))
+            records=data.get('brdinfoTimeList') or []
+            day={}
+            for r in records:
+                raw_code=str(r.get('isuSrdCd') or '').strip()
+                code=raw_code[-6:] if len(raw_code)>=6 else ''
+                if len(code)!=6 or not code.isdigit():
+                    continue
+                val=si(r.get('acctTrVal') if r.get('acctTrVal') is not None else r.get('accTrVal'))
+                if val>0: day[code]=val
+            result[d]=day
+            print(f'NXT历史成交额 {i}/{len(dates)} {d}: {len(day)}只')
+        return result
+    finally:
+        if driver is not None: driver.quit()
+
+
+def merge_nxt_history_turnover(histories, nxt_hist, latest_date):
+    """旧历史行用 KRX近似成交额 + NXT成交额；已由精确快照校正的行不重复叠加。"""
+    changed=0
+    for code,h in histories.items():
+        for row in h:
+            d=row[0]
+            if d == latest_date or d not in nxt_hist:
+                continue
+            precise = len(row)>=8 and si(row[7])==1
+            if precise:
+                continue
+            nv=si(nxt_hist[d].get(code))
+            if nv>0:
+                row[6]=si(row[6])+nv
+                changed+=1
+    print(f'NXT历史成交额合并完成: {changed} 条股票日记录')
+
 def apply_snapshot(hist, quote):
     """把今天最终盘口写回最后一根K线，之后筛选与图表使用同一基准。"""
     if not hist or not quote:
@@ -457,6 +526,8 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
         'history': h, 'price': p,
         'daychg': ((p / prev - 1) * 100) if prev else 0,
         'week': week, 'turnover': turn, 'prevTurnover': prev_turn, 'avgturn': av, 'minTurn20': mn,
+        'volume': si(quote.get('volume')) if quote else si(h[-1][5]),
+        'isPreferred': bool(re.search(r'(?:\d+우B|\d+우|우B|우)$', str(name or '').strip())),
         'streak': streak, 'ma5': m5, 'ma10': m10, 'ma20': m20,
         'ma30': m30, 'ma60': m60, 'ma120': m120,
         'dist': dist, 'rank': 0, 'sectorPower': 0,
@@ -545,6 +616,14 @@ def main():
     # 3) NXT 官方20:00最终数据（官网约20分钟延迟，因此任务安排在20:30 KST）
     latest_trade_date = max(h[-1][0] for h in histories.values() if h)
     print(f'历史数据最新交易日: {latest_trade_date}')
+
+    # V0.9.25：用真实交易日列表补过去20日NXT成交额。最新日由下方实时快照处理，避免重复。
+    ref_hist = max(histories.values(), key=len)
+    trade_dates20 = [r[0] for r in ref_hist[-20:]]
+    past_dates = [d for d in trade_dates20 if d != latest_trade_date]
+    nxt_hist_values = fetch_nxt_history_values(past_dates)
+    merge_nxt_history_turnover(histories, nxt_hist_values, latest_trade_date)
+
     nxt_official = fetch_nxt_official(latest_trade_date)
 
     # 把 NXT 官方最终价/成交量/成交额合并进 KRX 快照
@@ -608,7 +687,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'NXT官方有实际成交则使用20:00最终价；turnover=当日成交额；prevTurnover=上一交易日成交额；市值按Toss口径',
+        'snapshot_rule': 'V0.9.25：NXT最终价；综合成交量；近20日历史成交额补NXT；prevTurnover=上一交易日；市值按Toss口径；前端默认排除优先股',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
