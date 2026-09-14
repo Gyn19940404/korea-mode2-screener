@@ -66,7 +66,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.9.25 Toss历史成交额对齐版：补近20个交易日NXT成交额；主表新增当天综合成交量；模式2默认排除优先股。</div>
+<div class="notice">V0.9.26 Toss历史成交额对齐版：补近20个交易日NXT成交额；主表新增当天综合成交量；模式2默认排除优先股。</div>
 <div class="card filters">
 <div class="f" data-filter="capOn"><input id="capOn" type="checkbox" checked>市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
 <div class="f" data-filter="chgOn"><input id="chgOn" type="checkbox" checked>近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
@@ -171,7 +171,7 @@ function distBounds(){
  return [lo,hi];
 }
 function passes(s){
- if(s.isPreferred) return false; // V0.9.25 默认排除优先股，与Toss普通股筛选口径一致
+ if(s.isPreferred) return false; // V0.9.26 默认排除优先股，与Toss普通股筛选口径一致
  const capYi=(Number(s.marketCapTrillion)||0)*10000; // 1万亿韩元 = 10000亿韩元
  const chg=periodChange(s,num("chgDays",5));
  const minTurn=minTurnForDays(s,num("turnDays",20));
