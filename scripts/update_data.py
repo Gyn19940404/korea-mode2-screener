@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.17 NXT直接XHR版
+V0.9.18 NXT真实字段解析修复版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：KRX 实际交易额 + NXT 实际交易额（如有）
@@ -219,7 +219,7 @@ def fetch_nxt_official(target_date):
             return None
 
         code = pick(
-            r, 'isuSrtCd', 'isuCd', 'shortCode', 'code', 'stockCode',
+            r, 'isuSrdCd', 'isuSrtCd', 'isuCd', 'shortCode', 'code', 'stockCode',
             'symbol', 'isuNo', 'stckShrnIsin'
         )
         if code is not None:
@@ -236,14 +236,14 @@ def fetch_nxt_official(target_date):
             r, 'upDownRate', 'fluctuationRate', 'changeRate', 'pct',
             'rate', 'prdyCtrt'
         )
-        high = pick(r, 'hgPrc', 'highPrc', 'highPrice', 'high', 'stckHgpr')
-        low = pick(r, 'lwPrc', 'lowPrc', 'lowPrice', 'low', 'stckLwpr')
+        high = pick(r, 'hgpr', 'hgPrc', 'highPrc', 'highPrice', 'high', 'stckHgpr')
+        low = pick(r, 'lwpr', 'lwPrc', 'lowPrc', 'lowPrice', 'low', 'stckLwpr')
         volume = pick(
-            r, 'accTrdvol', 'accTrdVol', 'trdVol', 'volume',
+            r, 'acctQty', 'accTrdvol', 'accTrdVol', 'trdVol', 'volume',
             'accVolume', 'acmlVol'
         )
         value = pick(
-            r, 'accTrdval', 'accTrdVal', 'trdVal', 'value',
+            r, 'acctTrVal', 'accTrdval', 'accTrdVal', 'trdVal', 'value',
             'accValue', 'acmlTrPbmn'
         )
 
