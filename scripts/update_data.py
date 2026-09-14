@@ -7,7 +7,7 @@ V0.9.24 Toss「1天前成交额」对齐版
 - 当日市值：采用FDR/KRX当日市值，并把同一公司的优先股/种类股市值合并到普通股，贴近Toss公司市值口径
 - 当天涨幅：最终价相对前收盘价
 
-目的：修复V0.9.25：保留已对齐的NXT现价与Toss市值；补近20个交易日NXT历史成交额，并输出综合成交量；默认筛选排除优先股。
+目的：修复V0.9.26：保留已对齐的NXT现价与Toss市值；补近20个交易日NXT历史成交额，并输出综合成交量；默认筛选排除优先股。
 历史旧数据的成交额仍可能是近似值；从本版本开始每天保存精确成交额与 NXT 最终价。
 """
 import gzip, json, time, threading, re
@@ -617,7 +617,7 @@ def main():
     latest_trade_date = max(h[-1][0] for h in histories.values() if h)
     print(f'历史数据最新交易日: {latest_trade_date}')
 
-    # V0.9.25：用真实交易日列表补过去20日NXT成交额。最新日由下方实时快照处理，避免重复。
+    # V0.9.26：用真实交易日列表补过去20日NXT成交额。最新日由下方实时快照处理，避免重复。
     ref_hist = max(histories.values(), key=len)
     trade_dates20 = [r[0] for r in ref_hist[-20:]]
     past_dates = [d for d in trade_dates20 if d != latest_trade_date]
@@ -651,8 +651,9 @@ def main():
         # 只有NAVER成交额缺失时才用NXT成交额兜底。
         if si(q.get('turnoverWon')) <= 0:
             q['turnoverWon'] = nx_value
-        # 成交量 polling aq 仍按KRX主场量处理，与NXT量相加可对齐Toss综合成交量。
-        q['volume'] = si(q.get('volume')) + nx_volume
+        # Toss 的 거래량 与 NAVER polling aq 一致：直接使用 aq，不叠加 NXT 成交量。
+        # NXT 成交量仍保存在 nxtVolume，仅用于诊断，避免重复计算。
+        q['volume'] = si(q.get('volume'))
         merged_nxt += 1
 
     print(f'NXT官方数据成功合并: {merged_nxt}只')
@@ -687,7 +688,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'V0.9.25：NXT最终价；综合成交量；近20日历史成交额补NXT；prevTurnover=上一交易日；市值按Toss口径；前端默认排除优先股',
+        'snapshot_rule': 'V0.9.26：NXT最终价；Toss成交量= NAVER aq（不叠加NXT）；近20日历史成交额补NXT；prevTurnover=上一交易日；市值按Toss口径；前端默认排除优先股',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
