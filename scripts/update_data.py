@@ -171,6 +171,8 @@ def fetch_quote(code):
                 'daychg': ((krx_price / prev_close - 1) * 100) if prev_close else sf(d.get('cr')),
                 'turnoverWon': krx_value,
                 'volume': krx_volume,
+                'krxVolume': krx_volume,
+                'krxTurnoverWon': krx_value,
                 'listedShares': listed,
                 'useNxt': False,
                 'nxtPrice': 0,
@@ -656,6 +658,29 @@ def main():
         q['volume'] = si(q.get('volume'))
         merged_nxt += 1
 
+    # V0.9.27：只做成交量诊断，不改变现价/涨跌幅/市值/成交额逻辑。
+    # 用 Toss 截图中的核心股票逐项打印原始口径，避免继续猜字段。
+    diag_codes = {
+        '005930': '三星电子',
+        '000660': 'SK海力士',
+        '402340': 'SK Square',
+        '009150': '三星电机',
+    }
+    print('========== V0.9.27 成交量诊断开始 ==========')
+    for dc, dn in diag_codes.items():
+        dq = quotes.get(dc, {})
+        nx = nxt_official.get(dc, {})
+        print(
+            f'[成交量诊断] {dn} {dc} | '
+            f'NAVER_aq={si(dq.get("krxVolume")):,} | '
+            f'NXT_acctTdQty={si(nx.get("volume")):,} | '
+            f'网页当前volume={si(dq.get("volume")):,} | '
+            f'NAVER_aa={si(dq.get("krxTurnoverWon")):,} | '
+            f'NXT_acctTrVal={si(nx.get("value")):,}'
+        )
+    print('Toss对照值(本次截图): 三星电子=16,559,147; SK海力士=3,742,905; SK Square=497,357; 三星电机=448,439')
+    print('========== V0.9.27 成交量诊断结束 ==========')
+
     print(f'NXT官方数据成功合并: {merged_nxt}只')
     if merged_nxt < 300:
         raise RuntimeError(f'NXT成功合并仅 {merged_nxt} 只，数量异常，拒绝覆盖正式数据')
@@ -688,7 +713,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'V0.9.26：NXT最终价；Toss成交量= NAVER aq（不叠加NXT）；近20日历史成交额补NXT；prevTurnover=上一交易日；市值按Toss口径；前端默认排除优先股',
+        'snapshot_rule': 'V0.9.27成交量诊断：NXT最终价；Toss成交量= NAVER aq（不叠加NXT）；近20日历史成交额补NXT；prevTurnover=上一交易日；市值按Toss口径；前端默认排除优先股',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
