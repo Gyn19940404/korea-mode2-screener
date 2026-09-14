@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.23 Toss市值成交额口径修正版
+V0.9.24 Toss「1天前成交额」对齐版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：NAVER polling 的综合成交额优先；NXT仅在NAVER值缺失时补充，避免重复相加
@@ -431,6 +431,7 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
     mn = min(turns20)
     av = sum(turns20) / len(turns20)
     turn = h[-1][6] / 1e8
+    prev_turn = h[-2][6] / 1e8 if len(h) >= 2 else 0
 
     streak = 0
     for i in range(len(cs) - 1, 0, -1):
@@ -455,7 +456,7 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
         'marketCapTrillion': marcap / 1e12 if marcap else 0,
         'history': h, 'price': p,
         'daychg': ((p / prev - 1) * 100) if prev else 0,
-        'week': week, 'turnover': turn, 'avgturn': av, 'minTurn20': mn,
+        'week': week, 'turnover': turn, 'prevTurnover': prev_turn, 'avgturn': av, 'minTurn20': mn,
         'streak': streak, 'ma5': m5, 'ma10': m10, 'ma20': m20,
         'ma30': m30, 'ma60': m60, 'ma120': m120,
         'dist': dist, 'rank': 0, 'sectorPower': 0,
@@ -607,7 +608,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'NXT官方有实际成交则使用20:00最终价；成交额=KRX+NXT；无NXT成交则使用KRX',
+        'snapshot_rule': 'NXT官方有实际成交则使用20:00最终价；turnover=当日成交额；prevTurnover=上一交易日成交额；市值按Toss口径',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
