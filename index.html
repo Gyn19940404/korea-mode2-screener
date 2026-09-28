@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>韩股模式2选股器 V0.9.8 对表调试版</title>
+<title>韩股模式2选股器 V0.9.32 完整基准版</title>
 <style>
 body{margin:0;font-family:Arial,"Microsoft YaHei","Noto Sans KR",sans-serif;background:#f6f7f9;color:#171a21}
 header{height:60px;background:#fff;border-bottom:1px solid #e8ebf0;display:flex;align-items:center;padding:0 24px;gap:10px}
@@ -46,7 +46,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 .chart-box{position:relative}
 .chart-tip{position:absolute;display:none;pointer-events:none;z-index:20;background:rgba(17,24,39,.94);color:#fff;padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.55;box-shadow:0 4px 16px rgba(0,0,0,.18);white-space:nowrap}
 </style></head>
-<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.9.8 对表调试版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
+<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.9.32 完整基准版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
 <div class="layout">
 <aside class="sidebar">
   <div class="side-label">我的策略</div>
@@ -66,7 +66,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.9.30 Toss「1个月平均成交额」诊断版：不改已锁定行情字段；同时计算20交易日、21交易日、自然1个月平均成交额，用同一阈值直接对照Toss名单和数量。</div>
+<div class="notice">V0.9.32 完整基准版：保留20交易日、21交易日、自然1个月平均成交额对照；行情由云端每日更新，NXT可交易股票使用官方盘后数据。</div>
 <div class="card filters">
 <div class="f" data-filter="capOn"><input id="capOn" type="checkbox" checked>市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
 <div class="f" data-filter="chgOn"><input id="chgOn" type="checkbox" checked>近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
