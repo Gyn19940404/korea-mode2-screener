@@ -450,6 +450,52 @@ def merge_nxt_history_turnover(histories, nxt_hist, latest_date):
                 changed+=1
     print(f'NXT历史成交额合并完成: {changed} 条股票日记录')
 
+
+def write_turnover_diagnostic(histories, nxt_hist, nxt_official, latest_date):
+    """V0.9.31：只诊断 Toss 多出的3只股票最近20个交易日 KRX / NXT / 综合成交额。"""
+    import csv
+    targets = {
+        '034020': '두산에너빌리티',
+        '006400': '삼성SDI',
+        '196170': '알테오젠',
+    }
+    out_path = ROOT / 'turnover_diagnostic.csv'
+    rows_out = []
+    print('========== V0.9.31 Toss月均成交额诊断开始 ==========')
+    for code, name in targets.items():
+        h = histories.get(code, [])[-20:]
+        if not h:
+            print(f'[月均诊断] {name} {code}: 无历史数据')
+            continue
+        krx_sum = nxt_sum = total_sum = 0
+        valid = 0
+        print(f'--- {name} {code} ---')
+        for row in h:
+            d = str(row[0])
+            stored = si(row[6]) if len(row) > 6 else 0
+            if d == latest_date:
+                nx = si((nxt_official.get(code) or {}).get('value'))
+                krx = stored
+                total = krx + nx
+            else:
+                nx = si((nxt_hist.get(d) or {}).get(code))
+                # merge_nxt_history_turnover 已把历史 NXT 叠加进 row[6]，因此减回得到原 KRX/FDR 成交额。
+                total = stored
+                krx = max(0, total - nx)
+            if krx > 0 or nx > 0:
+                valid += 1
+                krx_sum += krx; nxt_sum += nx; total_sum += total
+            rows_out.append([name, code, d, krx, nx, total])
+            print(f'[逐日] {d} | KRX={krx/1e8:.1f}亿 | NXT={nx/1e8:.1f}亿 | 综合={total/1e8:.1f}亿')
+        denom = valid or 1
+        print(f'[20日平均] {name} | KRX={krx_sum/denom/1e8:.1f}亿 | NXT={nxt_sum/denom/1e8:.1f}亿 | KRX+NXT={total_sum/denom/1e8:.1f}亿 | 有效日={valid}')
+    with out_path.open('w', newline='', encoding='utf-8-sig') as f:
+        w=csv.writer(f)
+        w.writerow(['股票','代码','日期','KRX成交额(원)','NXT成交额(원)','KRX+NXT综合成交额(원)'])
+        w.writerows(rows_out)
+    print(f'诊断CSV已生成: {out_path.name}')
+    print('========== V0.9.31 Toss月均成交额诊断结束 ==========')
+
 def apply_snapshot(hist, quote):
     """把今天最终盘口写回最后一根K线，之后筛选与图表使用同一基准。"""
     if not hist or not quote:
@@ -525,6 +571,10 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
     return {
         'name': name, 'code': code, 'sector': '板块待接入', 'market': market,
         'marketCapTrillion': marcap / 1e12 if marcap else 0,
+        'ownMarketCapTrillion': si(listing_marcap) / 1e12 if si(listing_marcap) else 0,
+        'companyMarketCapTrillion': si(toss_marcap) / 1e12 if si(toss_marcap) else 0,
+        'listedShares': si(quote.get('listedShares')) if quote else 0,
+        'priceTimesSharesTrillion': (p * si(quote.get('listedShares')) / 1e12) if quote and si(quote.get('listedShares')) else 0,
         'history': h, 'price': p,
         'daychg': ((p / prev - 1) * 100) if prev else 0,
         'week': week, 'turnover': turn, 'prevTurnover': prev_turn, 'avgturn': av, 'minTurn20': mn,
@@ -630,6 +680,9 @@ def main():
 
     nxt_official = fetch_nxt_official(latest_trade_date)
 
+    # V0.9.31：在正式快照写回前，输出三只边界股票最近20日 KRX/NXT/综合成交额。
+    write_turnover_diagnostic(histories, nxt_hist_values, nxt_official, latest_trade_date)
+
     # 把 NXT 官方最终价/成交量/成交额合并进 KRX 快照
     merged_nxt = 0
     for c, nx in nxt_official.items():
@@ -655,9 +708,9 @@ def main():
         # 只有NAVER成交额缺失时才用NXT成交额兜底。
         if si(q.get('turnoverWon')) <= 0:
             q['turnoverWon'] = nx_value
-        # Toss 的 거래량 与 NAVER polling aq 一致：直接使用 aq，不叠加 NXT 成交量。
-        # NXT 成交量仍保存在 nxtVolume，仅用于诊断，避免重复计算。
-        q['volume'] = si(q.get('volume'))
+        # V0.9.29：同一最终时点对表确认 Toss 成交量≈NAVER/KRX aq + NXT 当日累计成交量。
+        # NXT acctTdQty 为当日累计量；有NXT时使用综合成交量，无NXT时保持NAVER/KRX。
+        q['volume'] = si(q.get('krxVolume')) + nx_volume
         merged_nxt += 1
 
     # V0.9.27：只做成交量诊断，不改变现价/涨跌幅/市值/成交额逻辑。
@@ -715,7 +768,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'V0.9.28成交量同源对比：NXT最终价；Toss成交量= NAVER aq（不叠加NXT）；近20日历史成交额补NXT；prevTurnover=上一交易日；市值按Toss口径；前端默认排除优先股',
+        'snapshot_rule': 'V0.9.31月均成交额诊断：NXT最终价；成交量= NAVER/KRX aq + NXT当日累计；市值同时输出FDR自身/公司合并/现价×上市股数用于最终锁定；其余已验证逻辑不动',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
