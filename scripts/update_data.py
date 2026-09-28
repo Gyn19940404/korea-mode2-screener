@@ -774,10 +774,11 @@ def main():
 
         q['price'] = nx_price
         q['daychg'] = ((nx_price / q['prevClose'] - 1) * 100) if q.get('prevClose') else sf(nx.get('pct'))
-        # NAVER polling 的 aa 在盘后已是综合成交额口径，不能再叠加NXT，否则会重复计算。
-        # 只有NAVER成交额缺失时才用NXT成交额兜底。
-        if si(q.get('turnoverWon')) <= 0:
-            q['turnoverWon'] = nx_value
+        # V0.9.35：与 Toss 单日成交额对表确认：单日成交额 = KRX/NAVER aa + NXT accTrval。
+        # 例如 삼성SDI：1728.3亿 + 1392.2亿 = 3120.5亿，与 Toss 完全一致。
+        # 因此有 NXT 成交额时直接相加；没有 NXT 的股票保持 KRX/NAVER 成交额。
+        krx_value = si(q.get('krxTurnoverWon'))
+        q['turnoverWon'] = krx_value + nx_value if nx_value > 0 else krx_value
         # V0.9.29：同一最终时点对表确认 Toss 成交量≈NAVER/KRX aq + NXT 当日累计成交量。
         # NXT acctTdQty 为当日累计量；有NXT时使用综合成交量，无NXT时保持NAVER/KRX。
         q['volume'] = si(q.get('krxVolume')) + nx_volume
