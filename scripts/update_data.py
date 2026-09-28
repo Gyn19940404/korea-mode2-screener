@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.24 Toss「1天前成交额」对齐版
+V0.9.32 完整基准版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：NAVER polling 的综合成交额优先；NXT仅在NAVER值缺失时补充，避免重复相加
@@ -768,7 +768,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'V0.9.31月均成交额诊断：NXT最终价；成交量= NAVER/KRX aq + NXT当日累计；市值同时输出FDR自身/公司合并/现价×上市股数用于最终锁定；其余已验证逻辑不动',
+        'snapshot_rule': 'V0.9.32完整基准：NXT最终价；成交量= NAVER/KRX aq + NXT当日累计；市值同时输出FDR自身/公司合并/现价×上市股数用于最终锁定；其余已验证逻辑不动',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
