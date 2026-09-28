@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.33 Toss月平均成交额7股反推诊断版
+V0.9.33 Toss「1个月平均成交额」单变量实验版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：NAVER polling 的综合成交额优先；NXT仅在NAVER值缺失时补充，避免重复相加
@@ -452,113 +452,68 @@ def merge_nxt_history_turnover(histories, nxt_hist, latest_date):
 
 
 def write_turnover_diagnostic(histories, nxt_hist, nxt_official, latest_date):
-    """V0.9.33：7只Toss对照股，反推“1个月平均成交额”的时间窗与KRX/NXT口径。只诊断，不改变正式筛选公式。"""
+    """V0.9.33：只做月均成交额口径实验，不改变正式筛选数据。"""
     import csv
+    from datetime import datetime, timedelta
     targets = {
-        '005930': ('삼성전자', 69000.0),
-        '000660': ('SK하이닉스', 90000.0),
-        '402340': ('SK스퀘어', 7728.2),
-        '009150': ('삼성전기', 14000.0),
-        '034020': ('두산에너빌리티', 5417.4),
-        '006400': ('삼성SDI', 4079.0),
-        '196170': ('알테오젠', 3105.1),
+        '034020': '두산에너빌리티',
+        '006400': '삼성SDI',
+        '196170': '알테오젠',
     }
     out_path = ROOT / 'turnover_diagnostic.csv'
-    summary_path = ROOT / 'turnover_formula_summary.csv'
-    rows_out, summary = [], []
-
+    rows_out = []
+    print('========== V0.9.33 Toss月均成交额单变量实验 ==========')
+    print('说明：本实验只输出诊断，不修改正式选股逻辑。')
     latest_dt = datetime.strptime(str(latest_date), '%Y-%m-%d')
-    # “自然1个月”：与网页现有定义一致，latest_date往前1个月，左开右闭。
-    y, m = latest_dt.year, latest_dt.month - 1
-    if m == 0:
-        y -= 1; m = 12
-    import calendar
-    start_day = min(latest_dt.day, calendar.monthrange(y, m)[1])
-    month_start = latest_dt.replace(year=y, month=m, day=start_day)
-    month_start_key = month_start.strftime('%Y-%m-%d')
+    calendar_start = (latest_dt - timedelta(days=31)).strftime('%Y-%m-%d')
 
-    print('========== V0.9.33 Toss月均成交额 7股反推诊断开始 ==========')
-    print(f'[诊断区间] 最新交易日={latest_date} | 自然1个月起点>{month_start_key} | 同时测试20交易日/21交易日/自然1个月')
-
-    formula_errors = {
-        'KRX_20': [], '综合_20': [],
-        'KRX_21': [], '综合_21': [],
-        'KRX_自然月': [], '综合_自然月': [],
-    }
-
-    for code, (name, toss_target) in targets.items():
-        full = histories.get(code, [])
-        if not full:
+    for code, name in targets.items():
+        allh = histories.get(code, [])
+        if not allh:
             print(f'[月均诊断] {name} {code}: 无历史数据')
             continue
 
-        # 最多取35个交易日，足够覆盖20/21交易日和自然1个月。
-        h = full[-35:]
-        daily = []
-        for row in h:
-            d = str(row[0])
-            stored = si(row[6]) if len(row) > 6 else 0
-            precise = len(row) >= 8 and si(row[7]) == 1
-            nx = si((nxt_official.get(code) or {}).get('value')) if d == latest_date else si((nxt_hist.get(d) or {}).get(code))
+        def unpack(rows):
+            items=[]
+            for row in rows:
+                d=str(row[0]); stored=si(row[6]) if len(row)>6 else 0
+                nx=si((nxt_official.get(code) or {}).get('value')) if d==latest_date else si((nxt_hist.get(d) or {}).get(code))
+                # 历史 stored 已合并NXT；最新日 stored 是NAVER/KRX口径，诊断时分别保留两种候选口径。
+                if d==latest_date:
+                    krx_like=stored
+                    combined_add=stored+nx
+                    combined_no_double=max(stored, nx) if nx>0 else stored
+                else:
+                    combined_add=stored
+                    krx_like=max(0, stored-nx)
+                    combined_no_double=stored
+                items.append((d,krx_like,nx,combined_add,combined_no_double))
+            return items
 
-            # 缓存中 precise=1 的行已经是当时保存的综合成交额，不再重复加NXT。
-            # 普通FDR历史行则视为KRX/NAVER基础成交额，再叠加对应日NXT成交额。
-            if precise:
-                total = stored
-                krx = max(0, stored - nx) if nx > 0 else stored
-            else:
-                krx = stored
-                total = stored + nx
+        d20=unpack(allh[-20:])
+        d21=unpack(allh[-21:])
+        cal_rows=[r for r in allh if calendar_start <= str(r[0]) <= str(latest_date)]
+        cal=unpack(cal_rows)
 
-            daily.append({'date': d, 'krx': krx, 'nxt': nx, 'total': total, 'precise': 1 if precise else 0})
-            rows_out.append([name, code, d, krx, nx, total, 1 if precise else 0])
+        print(f'--- {name} {code} ---')
+        for d,krx,nx,total,total_nodouble in d20:
+            print(f'[逐日] {d} | KRX/NAVER={krx/1e8:.1f}亿 | NXT={nx/1e8:.1f}亿 | 相加={total/1e8:.1f}亿 | 防重复={total_nodouble/1e8:.1f}亿')
+            rows_out.append([name,code,d,krx,nx,total,total_nodouble])
 
-        def avg(rows, key):
-            vals = [r[key] for r in rows if r[key] > 0]
-            return (sum(vals) / len(vals) / 1e8, len(vals)) if vals else (0.0, 0)
-
-        r20 = daily[-20:]
-        r21 = daily[-21:]
-        rcal = [r for r in daily if r['date'] > month_start_key and r['date'] <= str(latest_date)]
-        k20,n20=avg(r20,'krx'); t20,_=avg(r20,'total')
-        k21,n21=avg(r21,'krx'); t21,_=avg(r21,'total')
-        kcal,ncal=avg(rcal,'krx'); tcal,_=avg(rcal,'total')
-
-        vals = {
-            'KRX_20': k20, '综合_20': t20,
-            'KRX_21': k21, '综合_21': t21,
-            'KRX_自然月': kcal, '综合_自然月': tcal,
-        }
-        for f,v in vals.items():
-            formula_errors[f].append(abs(v-toss_target))
-        closest = min(vals, key=lambda f: abs(vals[f]-toss_target))
-
-        print(f'--- {name} {code} | Toss目标={toss_target:.1f}亿 ---')
-        print(f'[公式对比] 20日 KRX={k20:.1f}亿 综合={t20:.1f}亿 | 21日 KRX={k21:.1f}亿 综合={t21:.1f}亿 | 自然月({ncal}日) KRX={kcal:.1f}亿 综合={tcal:.1f}亿')
-        print(f'[最接近Toss] {closest}={vals[closest]:.1f}亿 | 误差={abs(vals[closest]-toss_target):.1f}亿')
-        summary.append([name,code,toss_target,k20,t20,k21,t21,ncal,kcal,tcal,closest,vals[closest],abs(vals[closest]-toss_target)])
-
-    print('========== 6种公式整体误差（7股平均绝对误差） ==========')
-    ranked=[]
-    for f,errs in formula_errors.items():
-        mae=sum(errs)/len(errs) if errs else 10**99
-        ranked.append((mae,f))
-    ranked.sort()
-    for i,(mae,f) in enumerate(ranked,1):
-        print(f'[公式排名] #{i} {f} | 7股平均绝对误差={mae:.1f}亿')
-    if ranked:
-        print(f'[当前最接近Toss公式] {ranked[0][1]} | MAE={ranked[0][0]:.1f}亿')
+        def avg(items, idx):
+            vals=[x[idx] for x in items if x[idx]>0]
+            return (sum(vals)/len(vals)/1e8 if vals else 0.0, len(vals))
+        for label,items in [('20交易日',d20),('21交易日',d21),('自然1个月',cal)]:
+            a_add,n_add=avg(items,3); a_safe,n_safe=avg(items,4); a_krx,n_krx=avg(items,1)
+            print(f'[实验结果] {name} | {label} | KRX/NAVER均值={a_krx:.1f}亿 | KRX+NXT相加均值={a_add:.1f}亿 | 防重复均值={a_safe:.1f}亿 | 交易日={len(items)}')
+        print('[Toss阈值检查] 3000亿：请直接看上面哪一列/哪一种周期跨过3000亿。')
 
     with out_path.open('w', newline='', encoding='utf-8-sig') as f:
         w=csv.writer(f)
-        w.writerow(['股票','代码','日期','KRX基础成交额(원)','NXT成交额(원)','综合成交额(원)','缓存精确快照'])
+        w.writerow(['股票','代码','日期','KRX_NAVER成交额(원)','NXT成交额(원)','直接相加(원)','防重复口径(원)'])
         w.writerows(rows_out)
-    with summary_path.open('w', newline='', encoding='utf-8-sig') as f:
-        w=csv.writer(f)
-        w.writerow(['股票','代码','Toss目标(亿)','20日KRX(亿)','20日综合(亿)','21日KRX(亿)','21日综合(亿)','自然月交易日数','自然月KRX(亿)','自然月综合(亿)','单股最接近公式','最接近值(亿)','绝对误差(亿)'])
-        w.writerows(summary)
-    print(f'诊断CSV已生成: {out_path.name} / {summary_path.name}')
-    print('========== V0.9.33 Toss月均成交额 7股反推诊断结束 ==========')
+    print(f'诊断CSV已生成: {out_path.name}')
+    print('========== V0.9.33 实验结束：先看두산에너빌리티 ==========')
 
 def apply_snapshot(hist, quote):
     """把今天最终盘口写回最后一根K线，之后筛选与图表使用同一基准。"""
@@ -735,23 +690,17 @@ def main():
     latest_trade_date = max(h[-1][0] for h in histories.values() if h)
     print(f'历史数据最新交易日: {latest_trade_date}')
 
-    # V0.9.33诊断：额外读取最近35个真实交易日的NXT成交额，仅用于反推Toss“1个月平均”口径。
-    # 正式历史合并仍只处理最近20交易日，避免改变V0.9.32基准算法。
+    # V0.9.26：用真实交易日列表补过去20日NXT成交额。最新日由下方实时快照处理，避免重复。
     ref_hist = max(histories.values(), key=len)
-    trade_dates35 = [r[0] for r in ref_hist[-35:]]
-    past_dates35 = [d for d in trade_dates35 if d != latest_trade_date]
-    nxt_hist_diag = fetch_nxt_history_values(past_dates35)
+    trade_dates20 = [r[0] for r in ref_hist[-20:]]
+    past_dates = [d for d in trade_dates20 if d != latest_trade_date]
+    nxt_hist_values = fetch_nxt_history_values(past_dates)
+    merge_nxt_history_turnover(histories, nxt_hist_values, latest_trade_date)
 
     nxt_official = fetch_nxt_official(latest_trade_date)
 
-    # 先在未修改正式历史前做7股反推诊断。
-    write_turnover_diagnostic(histories, nxt_hist_diag, nxt_official, latest_trade_date)
-
-    # 正式逻辑保持V0.9.32：只把最近20交易日的NXT成交额补入非精确历史行。
-    trade_dates20 = [r[0] for r in ref_hist[-20:]]
-    past_dates20 = [d for d in trade_dates20 if d != latest_trade_date]
-    nxt_hist_values = {d: nxt_hist_diag.get(d, {}) for d in past_dates20}
-    merge_nxt_history_turnover(histories, nxt_hist_values, latest_trade_date)
+    # V0.9.31：在正式快照写回前，输出三只边界股票最近20日 KRX/NXT/综合成交额。
+    write_turnover_diagnostic(histories, nxt_hist_values, nxt_official, latest_trade_date)
 
     # 把 NXT 官方最终价/成交量/成交额合并进 KRX 快照
     merged_nxt = 0
@@ -838,7 +787,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'V0.9.33诊断版（正式筛选仍沿用V0.9.32）：NXT最终价；成交量= NAVER/KRX aq + NXT当日累计；市值同时输出FDR自身/公司合并/现价×上市股数用于最终锁定；其余已验证逻辑不动',
+        'snapshot_rule': 'V0.9.31月均成交额诊断：NXT最终价；成交量= NAVER/KRX aq + NXT当日累计；市值同时输出FDR自身/公司合并/现价×上市股数用于最终锁定；其余已验证逻辑不动',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
