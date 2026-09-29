@@ -66,11 +66,11 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.9.36 主界面精简版：隐藏诊断列；保留已验证的 KRX/NAVER + NXT 单日成交额口径。近N日涨幅的N可自由输入任意交易日数。</div>
+<div class="notice">V0.9.37 成交额N日自由输入版：成交额周期可直接输入任意交易日数；N=1沿用已验证的 KRX/NAVER + NXT 单日成交额口径。</div>
 <div class="card filters">
 <div class="f" data-filter="capOn"><input id="capOn" type="checkbox" checked>市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
 <div class="f" data-filter="chgOn"><input id="chgOn" type="checkbox" checked>近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
-<div class="f" data-filter="turnOn"><input id="turnOn" type="checkbox" checked>成交额 <select id="monthMode" title="成交额口径测试"><option value="d1" selected>1交易日成交额</option><option value="d20">20交易日平均</option><option value="d21">21交易日平均</option><option value="calendar">自然1个月平均</option></select> ≥ <input id="minturn20" type="number" value="500"> 亿</div>
+<div class="f" data-filter="turnOn"><input id="turnOn" type="checkbox" checked>成交额 <input id="turnDays" type="number" min="1" max="240" step="1" value="1" style="width:58px"> 交易日平均 ≥ <input id="minturn20" type="number" value="500"> 亿</div>
 <div class="f" data-filter="distOn"><input id="distOn" type="checkbox" checked>距5日线 <input id="distMin" type="number" step=".1" value="-1.5">% ～ <input id="distMax" type="number" step=".1" value="1.5">%</div>
 <div class="f" data-filter="streakOn"><input id="streakOn" type="checkbox">连续上涨 ≥ <input id="streak" type="number" value="5">日</div>
 <button onclick="render()">刷新筛选</button><div class="f" style="background:#fff;color:#5b6472">候选 <b id="candidateCount">0</b> 只</div>
@@ -161,11 +161,10 @@ function avgTurnNaturalMonth(s){
   return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:NaN;
 }
 function selectedMonthTurn(s){
-  const mode=$("monthMode")?.value||"d1";
-  if(mode==="d1") return Number(s.turnover)||0;
-  if(mode==="d21") return avgTurnForDays(s,21);
-  if(mode==="calendar") return avgTurnNaturalMonth(s);
-  return avgTurnForDays(s,20);
+  const days=clampDays(num("turnDays",1),1,240);
+  // 1交易日使用已验证的 KRX/NAVER + NXT 最终成交额。
+  if(days===1) return Number(s.turnover)||0;
+  return avgTurnForDays(s,days);
 }
 
 
@@ -213,7 +212,7 @@ function updateFilterStyles(){
    box.classList.toggle('filter-off', !!cb && !cb.checked);
  });
 }
-["capOn","cap","chgOn","chgDays","wmin","wmax","turnOn","monthMode","minturn20","distOn","distMin","distMax","streak","streakOn"].forEach(id=>{
+["capOn","cap","chgOn","chgDays","wmin","wmax","turnOn","turnDays","minturn20","distOn","distMin","distMax","streak","streakOn"].forEach(id=>{
  const el=$(id); if(el){
    const rerender=()=>{updateFilterStyles();render();renderFinal();};
    el.addEventListener("input",rerender);el.addEventListener("change",rerender);
@@ -253,11 +252,8 @@ function setSort(view,key){
   if(view==="watch") renderWatch();
 }
 function turnoverLabel(){
- const mode=$("monthMode")?.value||"d1";
- if(mode==="d1") return "1交易日成交额(亿)";
- if(mode==="d21") return "21交易日平均成交额(亿)";
- if(mode==="calendar") return "自然1个月平均成交额(亿)";
- return "20交易日平均成交额(亿)";
+ const days=clampDays(num("turnDays",1),1,240);
+ return days===1 ? "1交易日成交额(亿)" : `${days}交易日平均成交额(亿)`;
 }
 function render(){
  let rows=sortedRows(stocks.filter(passes),"mode2");tb.innerHTML="";
