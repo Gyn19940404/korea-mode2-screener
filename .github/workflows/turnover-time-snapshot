@@ -1,0 +1,40 @@
+name: 成交额三时间点诊断快照
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron 使用 UTC；对应韩国时间约 08:55 / 15:35 / 20:05
+    # 特意比边界晚5分钟，避免刚收盘时数据尚未刷新。
+    - cron: "55 23 * * 0-4"
+    - cron: "35 6 * * 1-5"
+    - cron: "5 11 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 读取项目
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 恢复诊断快照缓存
+        uses: actions/cache@v4
+        with:
+          path: .data_cache/nxt_time_samples.json
+          key: nxt-time-samples-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            nxt-time-samples-${{ runner.os }}-
+
+      - name: 安装行情组件
+        run: pip install -r requirements.txt
+
+      - name: 抓取成交额快照
+        run: python scripts/turnover_time_snapshot.py
