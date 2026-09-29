@@ -11,7 +11,7 @@ V0.9.33 Toss月平均成交额7股反推诊断版
 历史旧数据的成交额仍可能是近似值；从本版本开始每天保存精确成交额与 NXT 最终价。
 """
 import gzip, json, time, threading, re, csv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -265,6 +265,7 @@ def fetch_nxt_official(target_date):
             'value': value,
             'high': high,
             'low': low,
+            '_raw': r,
         }
 
     try:
@@ -808,6 +809,38 @@ def main():
                         si(nx.get('price')), si(dq.get('price'))])
             print(f'[V0.9.39成交额拆分] {dn} {dc} | NAVER/KRX={krxv/1e8:.1f}亿 | NXT={nxtv/1e8:.1f}亿 | 当前合并={totalv/1e8:.1f}亿')
     print(f'V0.9.39 成交额原始拆分CSV: {diag_path}')
+
+    # V0.9.41：NXT三时段诊断。正式筛选公式完全不改。
+    # 先保存目标股票的官方XHR原始字段，检查接口是否直接提供
+    # pre/main/after 等个股分时段字段；同时保存韩国时间，便于后续分时采样。
+    kst = timezone(timedelta(hours=9))
+    sample_time_kst = datetime.now(kst).strftime('%Y-%m-%d %H:%M:%S KST')
+    session_diag = {
+        'version': 'V0.9.41',
+        'tradeDate': latest_trade_date,
+        'sampleTimeKST': sample_time_kst,
+        'note': '诊断文件，不改变正式筛选公式。NXT官方正규市场分为盘前/主盘/盘后。',
+        'stocks': {}
+    }
+    session_words = ('pre','main','after','bef','aft','market','mkt','time','tm','qty','val','trval','acc')
+    for dc, dn in diag_codes.items():
+        nx = nxt_official.get(dc, {})
+        raw = nx.get('_raw') if isinstance(nx, dict) else {}
+        raw = raw if isinstance(raw, dict) else {}
+        likely = {k:v for k,v in raw.items() if any(word in str(k).lower() for word in session_words)}
+        session_diag['stocks'][dc] = {
+            'name': dn,
+            'parsedNxtValueWon': si(nx.get('value')) if isinstance(nx, dict) else 0,
+            'parsedNxtVolume': si(nx.get('volume')) if isinstance(nx, dict) else 0,
+            'likelySessionFields': likely,
+            'allRawFields': raw,
+        }
+        print(f'[V0.9.41三时段诊断] {dn} {dc} | 采样={sample_time_kst} | NXT累计={si(nx.get("value"))/1e8:.1f}亿 | 候选字段={json.dumps(likely, ensure_ascii=False)[:1800]}')
+
+    session_path = ROOT / 'nxt_session_diagnostic.json'
+    session_path.write_text(json.dumps(session_diag, ensure_ascii=False, indent=2), encoding='utf-8')
+    print(f'V0.9.41 NXT三时段诊断JSON: {session_path}')
+    print('[V0.9.41说明] 若原始字段没有直接给出盘前/主盘/盘后个股值，下一步按KST时间点多次采样累计值做差分；本版不会修改筛选成交额。')
 
     print(f'NXT官方数据成功合并: {merged_nxt}只')
     if merged_nxt < 300:
