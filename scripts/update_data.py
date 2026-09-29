@@ -10,7 +10,7 @@ V0.9.33 Toss月平均成交额7股反推诊断版
 目的：修复V0.9.26：保留已对齐的NXT现价与Toss市值；补近20个交易日NXT历史成交额，并输出综合成交量；默认筛选排除优先股。
 历史旧数据的成交额仍可能是近似值；从本版本开始每天保存精确成交额与 NXT 最终价。
 """
-import gzip, json, time, threading, re
+import gzip, json, time, threading, re, csv
 from datetime import datetime, timedelta
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
