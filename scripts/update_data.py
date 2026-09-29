@@ -642,6 +642,9 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
         'history': h, 'price': p,
         'daychg': ((p / prev - 1) * 100) if prev else 0,
         'week': week, 'turnover': turn, 'prevTurnover': prev_turn, 'avgturn': av, 'minTurn20': mn,
+        'krxTurnoverWon': si(quote.get('krxTurnoverWon')) if quote else 0,
+        'nxtTurnoverWon': si(quote.get('nxtValue')) if quote else 0,
+        'combinedTurnoverWon': si(quote.get('turnoverWon')) if quote else 0,
         'volume': si(quote.get('volume')) if quote else si(h[-1][5]),
         'naverVolume': si(quote.get('krxVolume')) if quote else 0,
         'nxtVolume': si(quote.get('nxtVolume')) if quote else 0,
@@ -784,28 +787,27 @@ def main():
         q['volume'] = si(q.get('krxVolume')) + nx_volume
         merged_nxt += 1
 
-    # V0.9.27：只做成交量诊断，不改变现价/涨跌幅/市值/成交额逻辑。
-    # 用 Toss 截图中的核心股票逐项打印原始口径，避免继续猜字段。
+    # V0.9.39：把单日成交额三个口径彻底拆开保存，先诊断，不再猜Toss公式。
     diag_codes = {
-        '005930': '三星电子',
-        '000660': 'SK海力士',
-        '402340': 'SK Square',
-        '009150': '三星电机',
+        '005930': '삼성전자', '000660': 'SK하이닉스', '402340': 'SK스퀘어', '009150': '삼성전기',
+        '034020': '두산에너빌리티', '006400': '삼성SDI', '042700': '한미반도체', '028300': 'HLB',
     }
-    print('========== V0.9.27 成交量诊断开始 ==========')
-    for dc, dn in diag_codes.items():
-        dq = quotes.get(dc, {})
-        nx = nxt_official.get(dc, {})
-        print(
-            f'[成交量诊断] {dn} {dc} | '
-            f'NAVER_aq={si(dq.get("krxVolume")):,} | '
-            f'NXT_acctTdQty={si(nx.get("volume")):,} | '
-            f'网页当前volume={si(dq.get("volume")):,} | '
-            f'NAVER_aa={si(dq.get("krxTurnoverWon")):,} | '
-            f'NXT_acctTrVal={si(nx.get("value")):,}'
-        )
-    print('Toss对照值(本次截图): 三星电子=16,559,147; SK海力士=3,742,905; SK Square=497,357; 三星电机=448,439')
-    print('========== V0.9.27 成交量诊断结束 ==========')
+    diag_path = ROOT / 'turnover_raw_diagnostic.csv'
+    with diag_path.open('w', encoding='utf-8-sig', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(['日期','股票','代码','NAVER_KRX原始成交额(원)','NXT原始成交额(원)','当前合并成交额(원)',
+                    'NAVER_KRX(亿)','NXT(亿)','当前合并(亿)','NXT现价','最终现价'])
+        for dc, dn in diag_codes.items():
+            dq = quotes.get(dc, {})
+            nx = nxt_official.get(dc, {})
+            krxv = si(dq.get('krxTurnoverWon'))
+            nxtv = si(nx.get('value'))
+            totalv = si(dq.get('turnoverWon'))
+            w.writerow([latest_trade_date, dn, dc, krxv, nxtv, totalv,
+                        round(krxv/1e8,1), round(nxtv/1e8,1), round(totalv/1e8,1),
+                        si(nx.get('price')), si(dq.get('price'))])
+            print(f'[V0.9.39成交额拆分] {dn} {dc} | NAVER/KRX={krxv/1e8:.1f}亿 | NXT={nxtv/1e8:.1f}亿 | 当前合并={totalv/1e8:.1f}亿')
+    print(f'V0.9.39 成交额原始拆分CSV: {diag_path}')
 
     print(f'NXT官方数据成功合并: {merged_nxt}只')
     if merged_nxt < 300:
@@ -839,7 +841,7 @@ def main():
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
         'nxt_count': nxt_count,
-        'snapshot_rule': 'V0.9.33诊断版（正式筛选仍沿用V0.9.32）：NXT最终价；成交量= NAVER/KRX aq + NXT当日累计；市值同时输出FDR自身/公司合并/现价×上市股数用于最终锁定；其余已验证逻辑不动',
+        'snapshot_rule': 'V0.9.39成交额原始拆分诊断：正式筛选暂保持现有口径；额外保存krxTurnoverWon/nxtTurnoverWon/combinedTurnoverWon，并输出turnover_raw_diagnostic.csv用于与Toss逐日对表',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
