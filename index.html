@@ -66,7 +66,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.9.37 成交额N日自由输入版：成交额周期可直接输入任意交易日数；N=1沿用已验证的 KRX/NAVER + NXT 单日成交额口径。</div>
+<div class="notice">V0.9.45 量价对表诊断版：临时增加1交易日成交量，仅用于与 Toss 对表确认；不参与筛选和评分。成交额周期仍可自由输入。</div>
 <div class="card filters">
 <div class="f" data-filter="capOn"><input id="capOn" type="checkbox" checked>市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
 <div class="f" data-filter="chgOn"><input id="chgOn" type="checkbox" checked>近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
@@ -76,7 +76,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 <button onclick="render()">刷新筛选</button><div class="f" style="background:#fff;color:#5b6472">候选 <b id="candidateCount">0</b> 只</div>
 </div>
 <div class="card"><table>
-<thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="mode2" data-key="price" onclick="setSort('mode2','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="daychg" onclick="setSort('mode2','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th>近N日涨幅</th><th>连续上涨</th><th id="turnoverCol">成交额(亿)</th><th class="sort-th" data-view="mode2" data-key="marketCapTrillion" onclick="setSort('mode2','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="mode2" data-key="dist" onclick="setSort('mode2','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="mode2" data-key="score" onclick="setSort('mode2','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>结果</th><th>操作</th></tr></thead>
+<thead><tr><th>序号</th><th>股票</th><th class="sort-th" data-view="mode2" data-key="price" onclick="setSort('mode2','price')"><span class="sort-label">现价 <span class="sort-arrow">↕</span></span></th><th class="sort-th" data-view="mode2" data-key="daychg" onclick="setSort('mode2','daychg')"><span class="sort-label">当天涨幅 <span class="sort-arrow">↕</span></span></th><th>近N日涨幅</th><th>连续上涨</th><th>1交易日成交量(股)</th><th id="turnoverCol">成交额(亿)</th><th class="sort-th" data-view="mode2" data-key="marketCapTrillion" onclick="setSort('mode2','marketCapTrillion')"><span class="sort-label">市值(万亿) <span class="sort-arrow">↕</span></span></th><th>板块</th><th class="sort-th" data-view="mode2" data-key="dist" onclick="setSort('mode2','dist')"><span class="sort-label">距5日线 <span class="sort-arrow">↕</span></span></th><th class="sort-th active" data-view="mode2" data-key="score" onclick="setSort('mode2','score')"><span class="sort-label">评分 <span class="sort-arrow">↓</span></span></th><th>结果</th><th>操作</th></tr></thead>
 <tbody id="tb"></tbody></table></div>
 </section>
 <section id="panel-sectors" class="side-panel">
@@ -264,7 +264,7 @@ function render(){
  const dbgChg=periodChange(s,num("chgDays",5));
  const dbgStreak=Number(s.streak)||0;
  const turn=selectedMonthTurn(s);
- tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td class="${dbgChg>=0?'up':'down'}">${dbgChg>=0?'+':''}${dbgChg.toFixed(2)}%</td><td>${dbgStreak}日</td><td>${Number.isFinite(turn)?turn.toFixed(1):'-'}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')||(s.dist>=lo&&s.dist<=hi)?'good':'';})()}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
+ tr.innerHTML=`<td>${i+1}</td><td><div class="nm">${s.name}</div><div class="code">${s.code}</div></td><td>${fmt(s.price)}원</td><td class="${s.daychg>=0?'up':'down'}">${s.daychg>=0?'+':''}${s.daychg.toFixed(2)}%</td><td class="${dbgChg>=0?'up':'down'}">${dbgChg>=0?'+':''}${dbgChg.toFixed(2)}%</td><td>${dbgStreak}日</td><td>${Number.isFinite(Number(s.volume))?fmt(Number(s.volume)):'-'}</td><td>${Number.isFinite(turn)?turn.toFixed(1):'-'}</td><td>${s.marketCapTrillion.toFixed(2)}</td><td>${s.sector}</td><td class="${(()=>{const [lo,hi]=distBounds();return !enabled('distOn')||(s.dist>=lo&&s.dist<=hi)?'good':'';})()}">${s.dist>=0?'+':''}${s.dist.toFixed(2)}%</td><td><span class="score ${s.grade}">${s.score}</span> ${s.grade}</td><td><span class="pass">通过</span></td><td><button class="watch-btn" onclick="event.stopPropagation();toggleWatch('${s.code}')">${isWatched(s.code)?'已观察':'加观察'}</button></td>`;
  tb.appendChild(tr)})
 }
 function detail(code){
@@ -277,7 +277,7 @@ function detail(code){
  <div class="metric"><span>30日线</span><b>${fmt(s.ma30)}원</b></div>
  <div class="metric"><span>60日线</span><b>${fmt(s.ma60)}원</b></div>
  <div class="metric"><span>120日线</span><b>${fmt(s.ma120||0)}원</b></div>
- <div class="metric"><span>当前测试口径成交额</span><b>${selectedMonthTurn(s).toFixed(1)}亿</b></div>`;
+ <div class="metric"><span>1交易日成交量（诊断）</span><b>${Number.isFinite(Number(s.volume))?fmt(Number(s.volume))+'股':'-'}</b></div>\n <div class="metric"><span>当前测试口径成交额</span><b>${selectedMonthTurn(s).toFixed(1)}亿</b></div>`;
  checks.innerHTML=`<h3>筛选检查</h3>
  <div class="reason">${!enabled('chgOn')?'⚪':(periodChange(s,num('chgDays',5))>=num('wmin')&&periodChange(s,num('chgDays',5))<=num('wmax')?'✅':'❌')} 近${clampDays(num('chgDays',5),1,239)}日涨幅 ${periodChange(s,num('chgDays',5)).toFixed(2)}%${!enabled('chgOn')?' · 未启用':''}</div>
  <div class="reason">${!enabled('turnOn')?'⚪':(selectedMonthTurn(s)>=num('minturn20')?'✅':'❌')} 当前测试成交额 ${selectedMonthTurn(s).toFixed(1)}亿${!enabled('turnOn')?' · 未启用':''}</div>
