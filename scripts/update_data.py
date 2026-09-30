@@ -173,6 +173,9 @@ def fetch_quote(code):
                 'volume': krx_volume,
                 'krxVolume': krx_volume,
                 'krxTurnoverWon': krx_value,
+                'krxOpen': si(d.get('ov')),
+                'krxHigh': si(d.get('hv')),
+                'krxLow': si(d.get('lv')),
                 'listedShares': listed,
                 'useNxt': False,
                 'nxtPrice': 0,
@@ -562,33 +565,41 @@ def write_turnover_diagnostic(histories, nxt_hist, nxt_official, latest_date):
     print('========== V0.9.33 Toss月均成交额 7股反推诊断结束 ==========')
 
 def apply_snapshot(hist, quote):
-    """把今天最终盘口写回最后一根K线，之后筛选与图表使用同一基准。"""
+    """把当前交易日最终盘口写入K线；若历史源还停在前一日，则新增当天K线而不是覆盖昨天。"""
     if not hist or not quote:
         return hist
-    row = list(hist[-1])
-    while len(row) < 8:
-        row.append(0)
-
     price = si(quote.get('price'))
     if price <= 0:
         return hist
 
-    # 收盘价采用NXT最终价（如有）；高低价把KRX与NXT合并。
-    row[4] = price
-    nh = si(quote.get('nxtHigh'))
-    nl = si(quote.get('nxtLow'))
-    if nh > 0:
-        row[2] = max(si(row[2]), nh)
-    if nl > 0:
-        row[3] = min(x for x in (si(row[3]), nl) if x > 0)
-    if si(quote.get('volume')) > 0:
-        row[5] = si(quote['volume'])
-    if si(quote.get('turnoverWon')) > 0:
-        row[6] = si(quote['turnoverWon'])
-    row[7] = 1
+    trade_date = str(quote.get('tradeDate') or '').strip()
+    last_date = str(hist[-1][0])
+    if trade_date and trade_date > last_date:
+        # 历史源尚未发布当天日线：用当天快照新增一根，避免网页继续显示昨天。
+        op = si(quote.get('krxOpen')) or price
+        hi = max(si(quote.get('krxHigh')), si(quote.get('nxtHigh')), price)
+        lows = [x for x in (si(quote.get('krxLow')), si(quote.get('nxtLow')), price) if x > 0]
+        lo = min(lows) if lows else price
+        vol = si(quote.get('volume'))
+        val = si(quote.get('turnoverWon'))
+        out = list(hist) + [[trade_date, op, hi, lo, price, vol, val, 1]]
+        return out[-HISTORY_DAYS:]
 
-    out = list(hist)
-    out[-1] = row
+    row = list(hist[-1])
+    while len(row) < 8:
+        row.append(0)
+    row[4] = price
+    nh = si(quote.get('nxtHigh')); nl = si(quote.get('nxtLow'))
+    kh = si(quote.get('krxHigh')); kl = si(quote.get('krxLow')); ko = si(quote.get('krxOpen'))
+    if ko > 0: row[1] = ko
+    if kh > 0: row[2] = max(si(row[2]), kh)
+    if nh > 0: row[2] = max(si(row[2]), nh)
+    lows = [x for x in (si(row[3]), kl, nl) if x > 0]
+    if lows: row[3] = min(lows)
+    if si(quote.get('volume')) > 0: row[5] = si(quote['volume'])
+    if si(quote.get('turnoverWon')) > 0: row[6] = si(quote['turnoverWon'])
+    row[7] = 1
+    out = list(hist); out[-1] = row
     return out
 
 
@@ -736,8 +747,25 @@ def main():
         raise RuntimeError(f'当日快照只有 {len(quotes)} 只，拒绝覆盖 stocks_data.js')
 
     # 3) NXT 官方20:00最终数据（官网约20分钟延迟，因此任务安排在20:30 KST）
-    latest_trade_date = max(h[-1][0] for h in histories.values() if h)
-    print(f'历史数据最新交易日: {latest_trade_date}')
+    history_latest_date = max(h[-1][0] for h in histories.values() if h)
+    kst_now = datetime.now(timezone(timedelta(hours=9)))
+    expected_date = kst_now.strftime('%Y-%m-%d')
+    print(f'历史数据最新交易日: {history_latest_date} | KST运行日期: {expected_date}')
+
+    # V0.9.43：优先直接验证“今天”是否存在NXT正式成交数据。
+    # 若今天有足够NXT股票，说明是交易日，即使FDR/NAVER历史仍滞后一天，也强制生成今天K线。
+    today_nxt = fetch_nxt_official(expected_date)
+    if len(today_nxt) >= 300:
+        latest_trade_date = expected_date
+        nxt_official = today_nxt
+        print(f'[V0.9.43当日校验] 今日NXT有效 {len(today_nxt)}只 -> 强制正式数据日期={latest_trade_date}')
+    else:
+        latest_trade_date = history_latest_date
+        print(f'[V0.9.43当日校验] 今日NXT仅 {len(today_nxt)}只，按非交易日/数据未就绪处理 -> 使用历史最新={latest_trade_date}')
+        nxt_official = fetch_nxt_official(latest_trade_date)
+
+    for q in quotes.values():
+        q['tradeDate'] = latest_trade_date
 
     # V0.9.33诊断：额外读取最近35个真实交易日的NXT成交额，仅用于反推Toss“1个月平均”口径。
     # 正式历史合并仍只处理最近20交易日，避免改变V0.9.32基准算法。
@@ -745,8 +773,6 @@ def main():
     trade_dates35 = [r[0] for r in ref_hist[-35:]]
     past_dates35 = [d for d in trade_dates35 if d != latest_trade_date]
     nxt_hist_diag = fetch_nxt_history_values(past_dates35)
-
-    nxt_official = fetch_nxt_official(latest_trade_date)
 
     # 先在未修改正式历史前做7股反推诊断。
     write_turnover_diagnostic(histories, nxt_hist_diag, nxt_official, latest_trade_date)
@@ -863,16 +889,19 @@ def main():
 
     res.sort(key=lambda x: (x['market'], x['code']))
     latest = max(x['history'][-1][0] for x in res)
+    if latest_trade_date == expected_date and latest != expected_date:
+        raise RuntimeError(f'[V0.9.43] 今日已确认有交易，但最终数据日期仍为 {latest}，拒绝部署旧数据')
+    print(f'[V0.9.43最终校验] 目标交易日={latest_trade_date} | 输出交易日={latest}')
     nxt_count = sum(1 for x in res if x.get('quoteSource') == 'NAVER_NXT')
     meta = {
         'latest_date': latest,
-        'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'updated_at': datetime.now(timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M:%S KST'),
         'kospi_count': sum(x['market'] == 'KOSPI' for x in res),
         'kosdaq_count': sum(x['market'] == 'KOSDAQ' for x in res),
         'total_count': len(res),
         'history_days': HISTORY_DAYS,
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
-        'update_mode': '240日缓存增量 + KRX收盘 + NXT官方20:00最终数据',
+        'update_mode': 'V0.9.43 当日交易日强制校验 + 240日缓存增量 + KRX收盘 + NXT官方最终数据',
         'nxt_count': nxt_count,
         'snapshot_rule': 'V0.9.39成交额原始拆分诊断：正式筛选暂保持现有口径；额外保存krxTurnoverWon/nxtTurnoverWon/combinedTurnoverWon，并输出turnover_raw_diagnostic.csv用于与Toss逐日对表',
     }
