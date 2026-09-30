@@ -1,4 +1,4 @@
-name: 成交额三时间点诊断快照
+name: 成交量+成交额三时间点诊断快照
 
 on:
   workflow_dispatch:
@@ -36,5 +36,5 @@ jobs:
       - name: 安装行情组件
         run: pip install -r requirements.txt
 
-      - name: 抓取成交额快照
+      - name: 抓取成交量+成交额快照
         run: python scripts/turnover_time_snapshot.py
