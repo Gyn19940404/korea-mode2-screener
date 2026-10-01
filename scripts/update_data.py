@@ -752,16 +752,28 @@ def main():
     expected_date = kst_now.strftime('%Y-%m-%d')
     print(f'历史数据最新交易日: {history_latest_date} | KST运行日期: {expected_date}')
 
-    # V0.9.43：优先直接验证“今天”是否存在NXT正式成交数据。
+    # V0.9.46：优先直接验证“今天”是否存在NXT正式成交数据。
     # 若今天有足够NXT股票，说明是交易日，即使FDR/NAVER历史仍滞后一天，也强制生成今天K线。
     today_nxt = fetch_nxt_official(expected_date)
     if len(today_nxt) >= 300:
         latest_trade_date = expected_date
         nxt_official = today_nxt
-        print(f'[V0.9.43当日校验] 今日NXT有效 {len(today_nxt)}只 -> 强制正式数据日期={latest_trade_date}')
+        print(f'[V0.9.46当日校验] 今日NXT有效 {len(today_nxt)}只 -> 正式数据日期={latest_trade_date}')
     else:
+        # 20:30 KST以后，如果NAVER已经出现大量今日行情，则说明今天是交易日。
+        # 此时NXT抓取异常时禁止静默回退到昨天，避免网页继续显示旧日期。
+        quote_dates = [str(q.get('tradeDate') or '') for q in quotes.values()]
+        today_quote_count = sum(1 for d in quote_dates if d == expected_date)
+        after_2030 = (kst_now.weekday() < 5 and
+                      (kst_now.hour > 20 or (kst_now.hour == 20 and kst_now.minute >= 30)))
+        print(f'[V0.9.46当日校验] 今日NXT={len(today_nxt)}只 | NAVER今日={today_quote_count}只 | 20:30后={after_2030}')
+        if after_2030 and today_quote_count >= 500:
+            raise RuntimeError(
+                f'[V0.9.46] 已确认{expected_date}有交易，但NXT当天仅{len(today_nxt)}只；'
+                '拒绝生成上一交易日数据，请重跑。'
+            )
         latest_trade_date = history_latest_date
-        print(f'[V0.9.43当日校验] 今日NXT仅 {len(today_nxt)}只，按非交易日/数据未就绪处理 -> 使用历史最新={latest_trade_date}')
+        print(f'[V0.9.46当日校验] 今日未确认完整交易数据 -> 保留最近交易日={latest_trade_date}')
         nxt_official = fetch_nxt_official(latest_trade_date)
 
     for q in quotes.values():
@@ -890,8 +902,8 @@ def main():
     res.sort(key=lambda x: (x['market'], x['code']))
     latest = max(x['history'][-1][0] for x in res)
     if latest_trade_date == expected_date and latest != expected_date:
-        raise RuntimeError(f'[V0.9.43] 今日已确认有交易，但最终数据日期仍为 {latest}，拒绝部署旧数据')
-    print(f'[V0.9.43最终校验] 目标交易日={latest_trade_date} | 输出交易日={latest}')
+        raise RuntimeError(f'[V0.9.46] 今日已确认有交易，但最终数据日期仍为 {latest}，拒绝部署旧数据')
+    print(f'[V0.9.46最终校验] 目标交易日={latest_trade_date} | 输出交易日={latest}')
     nxt_count = sum(1 for x in res if x.get('quoteSource') == 'NAVER_NXT')
     meta = {
         'latest_date': latest,
@@ -901,7 +913,7 @@ def main():
         'total_count': len(res),
         'history_days': HISTORY_DAYS,
         'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
-        'update_mode': 'V0.9.43 当日交易日强制校验 + 240日缓存增量 + KRX收盘 + NXT官方最终数据',
+        'update_mode': 'V0.9.46 当日交易日强制校验 + 240日缓存增量 + KRX收盘 + NXT官方最终数据',
         'nxt_count': nxt_count,
         'snapshot_rule': 'V0.9.39成交额原始拆分诊断：正式筛选暂保持现有口径；额外保存krxTurnoverWon/nxtTurnoverWon/combinedTurnoverWon，并输出turnover_raw_diagnostic.csv用于与Toss逐日对表',
     }
