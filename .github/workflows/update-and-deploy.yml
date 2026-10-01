@@ -1,83 +1,58 @@
-name: Update Korean Stock Data and Deploy Pages
+name: 每日20点30分更新当日收盘
 
 on:
   workflow_dispatch:
   schedule:
+    # GitHub cron使用UTC；11:30 UTC = 韩国时间20:30
     - cron: "30 11 * * 1-5"
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages"
+  group: korea-mode2-daily-close
   cancel-in-progress: false
 
 jobs:
-  update-and-deploy:
+  update:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
+          cache: pip
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Chrome
-        uses: browser-actions/setup-chrome@v1
-
-      - name: Restore data cache
-        uses: actions/cache@v4
-        with:
-          path: .data_cache
-          key: korea-mode2-data-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            korea-mode2-data-${{ runner.os }}-
-
-      - name: Update stock data
+      - name: Generate current trading day data
         run: python scripts/update_data.py
 
-      - name: Validate generated data
-        shell: bash
+      - name: Validate output
         run: |
-          test -s stocks_data.js
-          SIZE=$(wc -c < stocks_data.js)
-          echo "stocks_data.js size: $SIZE bytes"
-          if [ "$SIZE" -lt 1000000 ]; then
-            echo "stocks_data.js is unexpectedly small; refusing to publish."
-            exit 1
-          fi
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("stocks_data.js")
+          if not p.exists():
+              raise SystemExit("stocks_data.js未生成")
+          if p.stat().st_size < 1_000_000:
+              raise SystemExit(f"stocks_data.js异常过小: {p.stat().st_size} bytes")
+          print("stocks_data.js:", p.stat().st_size, "bytes")
+          PY
 
-      - name: Commit refreshed data
-        shell: bash
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stocks_data.js .data_cache || true
+          git add stocks_data.js .data_cache/ || true
           if git diff --cached --quiet; then
-            echo "No data changes to commit."
+            echo "没有新数据，无需提交"
           else
-            git commit -m "chore: refresh Korean stock data"
+            git commit -m "data: update daily close"
             git push
           fi
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
-      - name: Deploy GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
