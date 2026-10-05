@@ -167,6 +167,7 @@ def fetch_quote(code):
 
             return {
                 'price': krx_price,
+                'krxPrice': krx_price,
                 'prevClose': prev_close,
                 'daychg': ((krx_price / prev_close - 1) * 100) if prev_close else sf(d.get('cr')),
                 'turnoverWon': krx_value,
@@ -236,23 +237,19 @@ def fetch_nxt_official(target_date):
 
         # NXT字段名曾出现细微差异；这里不再只依赖一个固定拼写。
         volume_raw = (
-            r.get('acctTdQty')
-            if r.get('acctTdQty') is not None else
-            r.get('acctQty')
+            pick(r, 'accTdQty', 'acctTdQty', 'acctQty', 'accQty')
         )
         value_raw = (
-            r.get('acctTrVal')
-            if r.get('acctTrVal') is not None else
-            r.get('accTrVal')
+            pick(r, 'accTrval', 'accTrVal', 'acctTrVal', 'acctTrval')
         )
 
         # 若固定字段仍未命中，则按字段名语义兜底。
         if volume_raw is None or value_raw is None:
             for k, v in r.items():
                 nk = str(k).lower().replace('_', '')
-                if volume_raw is None and nk.startswith('acct') and 'qty' in nk:
+                if volume_raw is None and nk.startswith('acc') and 'qty' in nk:
                     volume_raw = v
-                if value_raw is None and nk.startswith('acct') and ('trval' in nk or 'value' in nk):
+                if value_raw is None and nk.startswith('acc') and ('trval' in nk or 'value' in nk):
                     value_raw = v
 
         volume = si(volume_raw)
@@ -837,6 +834,7 @@ def main():
     diag_codes = {
         '005930': '삼성전자', '000660': 'SK하이닉스', '402340': 'SK스퀘어', '009150': '삼성전기',
         '034020': '두산에너빌리티', '006400': '삼성SDI', '042700': '한미반도체', '028300': 'HLB',
+        '047040': '대우건설', '105560': 'KB금융',
     }
     diag_path = ROOT / 'turnover_raw_diagnostic.csv'
     with diag_path.open('w', encoding='utf-8-sig', newline='') as f:
