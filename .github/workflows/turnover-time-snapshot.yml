@@ -1,4 +1,4 @@
-name: 成交量+成交额三时间点诊断快照
+name: 大宇建设 vs KB金融 三时间点量价对照 V0.9.49
 
 on:
   workflow_dispatch:
