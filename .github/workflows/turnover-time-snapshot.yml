@@ -1,4 +1,4 @@
-name: 10股三时间点量价对照 V0.9.50
+name: 10股三时间点量价对照 V0.9.51
 
 on:
   workflow_dispatch:
@@ -11,6 +11,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: korea-mode2-three-snapshots
+  cancel-in-progress: false
 
 jobs:
   snapshot:
@@ -25,14 +29,6 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: 恢复诊断快照缓存
-        uses: actions/cache@v4
-        with:
-          path: .data_cache/nxt_time_samples.json
-          key: nxt-time-samples-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            nxt-time-samples-${{ runner.os }}-
-
       - name: 安装行情组件
         run: pip install -r requirements.txt
 
@@ -43,6 +39,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
           git add .data_cache/nxt_time_samples.json
           if git diff --cached --quiet; then
             echo "快照无变化"
