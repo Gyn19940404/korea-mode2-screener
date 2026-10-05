@@ -1,4 +1,4 @@
-name: 每日20点30分更新当日收盘
+name: 每日20点30分更新当日收盘 V0.9.47
 
 on:
   workflow_dispatch:
