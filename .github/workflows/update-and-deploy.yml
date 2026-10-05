@@ -63,7 +63,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stocks_data.js .data_cache/ turnover_raw_diagnostic.csv nxt_session_diagnostic.json universe_type_diagnostic.csv 2>/dev/null || true
+          git add stocks_data.js .data_cache/ turnover_raw_diagnostic.csv nxt_session_diagnostic.json universe_type_diagnostic.csv trading_status_diagnostic.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "数据文件没有变化"
           else
