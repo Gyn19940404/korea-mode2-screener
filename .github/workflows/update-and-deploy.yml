@@ -1,22 +1,28 @@
-name: 每日20点30分更新当日收盘 V0.9.47
+name: 每日20点30分更新并发布网页 V0.9.48
 
 on:
   workflow_dispatch:
   schedule:
-    # GitHub cron使用UTC；11:30 UTC = 韩国时间20:30
+    # UTC 11:30 = 韩国时间 20:30
     - cron: "30 11 * * 1-5"
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: korea-mode2-daily-close
   cancel-in-progress: false
 
 jobs:
-  update:
+  update-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,26 +39,52 @@ jobs:
       - name: Generate current trading day data
         run: python scripts/update_data.py
 
-      - name: Validate output
+      - name: Validate stocks_data.js
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re, json
           p = Path("stocks_data.js")
           if not p.exists():
-              raise SystemExit("stocks_data.js未生成")
+              raise SystemExit("stocks_data.js 未生成")
           if p.stat().st_size < 1_000_000:
-              raise SystemExit(f"stocks_data.js异常过小: {p.stat().st_size} bytes")
-          print("stocks_data.js:", p.stat().st_size, "bytes")
+              raise SystemExit(f"stocks_data.js 异常过小: {p.stat().st_size} bytes")
+          s = p.read_text(encoding="utf-8")
+          m = re.search(r'window\.DATA_META=(\{.*?\});', s, re.S)
+          if not m:
+              raise SystemExit("找不到 DATA_META")
+          meta = json.loads(m.group(1))
+          print("网页正式交易日:", meta.get("latest_date"))
+          print("云端更新时间:", meta.get("updated_at"))
+          print("股票数:", meta.get("total_count"))
           PY
 
-      - name: Commit and push
+      - name: Commit generated data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stocks_data.js .data_cache/ || true
+          git add stocks_data.js .data_cache/ turnover_raw_diagnostic.csv nxt_session_diagnostic.json 2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "没有新数据，无需提交"
+            echo "数据文件没有变化"
           else
             git commit -m "data: update daily close"
             git push
           fi
+
+      # 关键修复：不再等另一个Pages工作流被push触发，
+      # 当前任务生成完 stocks_data.js 后，立即把当前仓库内容发布到Pages。
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload current site to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy current site to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Final message
+        run: |
+          echo "V0.9.48 完成：数据生成、提交、GitHub Pages发布在同一次任务中完成。"
