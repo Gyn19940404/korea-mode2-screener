@@ -432,7 +432,7 @@ def fetch_nxt_history_values(trade_dates):
                 code=raw_code[-6:] if len(raw_code)>=6 else ''
                 if len(code)!=6 or not code.isdigit():
                     continue
-                val=si(r.get('acctTrVal') if r.get('acctTrVal') is not None else r.get('accTrVal'))
+                val=si(r.get('accTrval') if r.get('accTrval') is not None else (r.get('accTrVal') if r.get('accTrVal') is not None else (r.get('acctTrVal') if r.get('acctTrVal') is not None else r.get('acctTrval'))))
                 if val>0: day[code]=val
             result[d]=day
             print(f'NXT历史成交额 {i}/{len(dates)} {d}: {len(day)}只')
