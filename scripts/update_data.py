@@ -710,7 +710,7 @@ def build_toss_marcap_map(u):
 def main():
     u = universe()
 
-    # V0.9.51 基础股票池分类诊断：只分类，不排除，避免为了对齐Toss数量误删正常股票。
+    # V0.9.51 基础股票池分类诊断：只分类，不排除。
     pool_diag = ROOT / 'universe_type_diagnostic.csv'
     pool_counts = {}
     with pool_diag.open('w', encoding='utf-8-sig', newline='') as pf:
@@ -720,7 +720,21 @@ def main():
             uc = str(ur.get('Code','')).zfill(6)
             un = str(ur.get('Name', uc)).strip()
             um = str(ur.get('Market',''))
-            preferred = bool(re.search(r'(?:\\d+우B|\\d+우|우B|우)
+            preferred = bool(re.search(r'(?:\\d+우B|\\d+우|우B|우)$', un))
+            if preferred:
+                typ, excluded, note = '优先股/种类股', '是', '当前前端isPreferred已排除'
+            elif re.search(r'(?:스팩|SPAC)', un, re.I):
+                typ, excluded, note = 'SPAC', '否', '待确认后决定是否从模式2基础池排除'
+            elif re.search(r'(?:리츠|REIT)', un, re.I):
+                typ, excluded, note = 'REITs', '否', '待确认后决定是否从模式2基础池排除'
+            else:
+                typ, excluded, note = '普通/其他', '否', ''
+            pool_counts[typ] = pool_counts.get(typ, 0) + 1
+            pw.writerow([uc, un, um, typ, excluded, note])
+    print('[V0.9.51股票池分类] ' + json.dumps(pool_counts, ensure_ascii=False))
+    print(f'[V0.9.51股票池分类] 明细已生成: {pool_diag}')
+
+    toss_marcap_map = build_toss_marcap_map(u)
     print('Toss市值口径映射完成:', len(toss_marcap_map), '只')
     cache = load_cache()
     print('股票总数:', len(u), '缓存股票:', len(cache))
