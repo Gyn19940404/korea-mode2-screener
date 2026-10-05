@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""V0.9.44 - 08:55 / 15:35 / 20:05 KST 成交量+成交额三时间点快照诊断。
+"""V0.9.49 - 08:55 / 15:35 / 20:05 KST 成交量+成交额三时间点快照诊断。
 只写 .data_cache/nxt_time_samples.json 并打印日志，不修改 stocks_data.js。
 """
 import json
@@ -14,6 +14,8 @@ CACHE_DIR = ROOT / '.data_cache'
 OUT = CACHE_DIR / 'nxt_time_samples.json'
 KST = timezone(timedelta(hours=9))
 TARGETS = {
+    '047040': '대우건설',
+    '105560': 'KB금융',
     '005930': '삼성전자',
     '000660': 'SK하이닉스',
     '402340': 'SK스퀘어',
@@ -37,7 +39,7 @@ def main():
     trade_date = now.strftime('%Y-%m-%d')
     sampled_at = now.strftime('%Y-%m-%d %H:%M:%S KST')
     slot = slot_label(now)
-    print(f'[V0.9.44量价快照] 开始 | {sampled_at} | {slot}')
+    print(f'[V0.9.49量价快照] 开始 | {sampled_at} | {slot}')
 
     # NXT接口需要交易日；若休市/无数据则明确失败，不影响正式网页。
     nxt = fetch_nxt_official(trade_date)
@@ -65,7 +67,7 @@ def main():
         }
         rows.append(row)
         print(
-            f'[V0.9.44量价快照] {name} {code} | {slot} | '
+            f'[V0.9.49量价快照] {name} {code} | {slot} | '
             f'KRX量={krx_vol:,}股 | KRX额={krx_val/1e8:.1f}亿 | '
             f'NXT量={nxt_vol:,}股 | NXT额={nxt_val/1e8:.1f}亿 | '
             f'合计量={krx_vol+nxt_vol:,}股 | 合计额={(krx_val+nxt_val)/1e8:.1f}亿 | '
@@ -75,7 +77,7 @@ def main():
         )
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    data = {'version': 'V0.9.44', 'samples': []}
+    data = {'version': 'V0.9.49', 'samples': []}
     if OUT.exists():
         try:
             old = json.loads(OUT.read_text(encoding='utf-8'))
@@ -83,16 +85,16 @@ def main():
                 data = old
         except Exception:
             pass
-    data['version'] = 'V0.9.44'
+    data['version'] = 'V0.9.49'
     data['samples'].append({'sampleTimeKST': sampled_at, 'slot': slot, 'stocks': rows})
     data['samples'] = data['samples'][-30:]
     OUT.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    print(f'[V0.9.44量价快照] 已保存 {OUT} | 累计快照={len(data["samples"])}组')
+    print(f'[V0.9.49量价快照] 已保存 {OUT} | 累计快照={len(data["samples"])}组')
 
     # 同日已有多个时间点时，直接打印差分，方便截图对比。
     today = [s for s in data['samples'] if str(s.get('sampleTimeKST','')).startswith(trade_date)]
     if len(today) >= 2:
-        print(f'[V0.9.44量价差分] {trade_date} 已有 {len(today)} 个时间点')
+        print(f'[V0.9.49量价差分] {trade_date} 已有 {len(today)} 个时间点')
         for code, name in TARGETS.items():
             vals=[]
             for s in today:
@@ -104,7 +106,7 @@ def main():
             if len(vals)>=2:
                 first,last=vals[0],vals[-1]
                 print(
-                    f'[V0.9.44量价差分] {name} | '
+                    f'[V0.9.49量价差分] {name} | '
                     f'KRX量增量={last[4]-first[4]:,}股 | KRX额增量={(last[2]-first[2])/1e8:.1f}亿 | '
                     f'NXT量增量={last[5]-first[5]:,}股 | NXT额增量={(last[3]-first[3])/1e8:.1f}亿 | '
                     f'{first[1]} -> {last[1]}'
