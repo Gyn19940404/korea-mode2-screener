@@ -36,8 +36,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: 正式脚本语法自检
+        run: python -m py_compile scripts/update_data.py
+
       - name: Generate current trading day data
-        run: python scripts/update_data.py
+        shell: bash
+        run: |
+          set -e
+          for n in 1 2 3; do
+            echo "正式数据抓取尝试 $n/3"
+            if python scripts/update_data.py; then
+              exit 0
+            fi
+            if [ "$n" -lt 3 ]; then sleep 30; fi
+          done
+          echo "连续3次失败，停止发布，保留线上上一版正确数据"
+          exit 1
 
       - name: Validate stocks_data.js
         run: |
