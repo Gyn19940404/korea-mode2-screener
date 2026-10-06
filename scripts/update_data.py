@@ -721,16 +721,16 @@ def main():
             un = str(ur.get('Name', uc)).strip()
             um = str(ur.get('Market',''))
             preferred = bool(
-                re.search(r'(?:\\d+우B|\\d+우|우B|우)
-            if preferred:
+                re.search(r'(?:\\d+우B|\\d+우|우B|우)$', un) is not None
+            )
                 typ, excluded, note = '优先股/种类股', '是', '当前前端isPreferred已排除'
             elif re.search(r'(?:스팩|SPAC)', un, re.I):
                 typ, excluded, note = 'SPAC', '否', '待确认后决定是否从模式2基础池排除'
             elif (
                 un.endswith('리츠')
                 or '리츠코크렙' in un
-                or re.search(r'REIT(?:S)?
-                typ, excluded, note = 'REITs', '否', '待确认后决定是否从模式2基础池排除'
+                or re.search(r'REIT(?:S)?$', un, re.I)
+            ):
             else:
                 typ, excluded, note = '普通/其他', '否', ''
             pool_counts[typ] = pool_counts.get(typ, 0) + 1
