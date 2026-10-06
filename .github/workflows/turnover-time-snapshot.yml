@@ -1,4 +1,4 @@
-name: 10股三时间点量价对照 V0.9.52
+name: 10股三时间点量价对照 V0.9.53
 
 on:
   workflow_dispatch:
@@ -32,8 +32,21 @@ jobs:
       - name: 安装行情组件
         run: pip install -r requirements.txt
 
-      - name: 抓取成交量+成交额快照（只读正式行情逻辑）
-        run: python scripts/turnover_time_snapshot.py
+      - name: 诊断脚本语法自检
+        run: python -m py_compile scripts/diagnostic_market.py scripts/turnover_time_snapshot.py
+
+      - name: 抓取成交量+成交额快照（完全独立）
+        shell: bash
+        run: |
+          set -e
+          for n in 1 2 3; do
+            echo "诊断抓取尝试 $n/3"
+            if python scripts/turnover_time_snapshot.py; then
+              exit 0
+            fi
+            if [ "$n" -lt 3 ]; then sleep 20; fi
+          done
+          exit 1
 
       - name: 持久保存三时间点快照
         run: |
