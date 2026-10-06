@@ -6,7 +6,8 @@
 import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-
+# 完全独立于正式 update_data.py。
+from diagnostic_market import fetch_quote, fetch_nxt_official, si
 # 完全独立于正式 update_data.py。\nfrom diagnostic_market import fetch_quote, fetch_nxt_official, si
 
 ROOT = Path(__file__).resolve().parents[1]
