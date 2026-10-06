@@ -1,4 +1,4 @@
-name: 10股三时间点量价对照 V0.9.51
+name: 10股三时间点量价对照 V0.9.52
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
       - name: 安装行情组件
         run: pip install -r requirements.txt
 
-      - name: 抓取成交量+成交额快照
+      - name: 抓取成交量+成交额快照（只读正式行情逻辑）
         run: python scripts/turnover_time_snapshot.py
 
       - name: 持久保存三时间点快照
@@ -40,6 +40,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main
+          # 诊断任务只允许提交自己的快照文件，绝不提交 stocks_data.js / index.html / update_data.py
           git add .data_cache/nxt_time_samples.json
           if git diff --cached --quiet; then
             echo "快照无变化"
