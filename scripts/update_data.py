@@ -724,7 +724,7 @@ def main():
                 re.search(r'(?:\\d+우B|\\d+우|우B|우)$', un) is not None
             )
             if preferred:
-            elif re.search(r'(?:스팩|SPAC)', un, re.I):
+                typ, excluded, note = '优先股/种类股', '是', '当前前端isPreferred已排除'
                 typ, excluded, note = 'SPAC', '否', '待确认后决定是否从模式2基础池排除'
             elif (
                 un.endswith('리츠')
@@ -732,8 +732,8 @@ def main():
                 or re.search(r'REIT(?:S)?$', un, re.I)
             ):
                 typ, excluded, note = 'REITs', '否', '待确认后决定是否从模式2基础池排除'
+            else:
                 typ, excluded, note = '普通/其他', '否', ''
-            pool_counts[typ] = pool_counts.get(typ, 0) + 1
             pw.writerow([uc, un, um, typ, excluded, note])
     print('[V0.9.51股票池分类] ' + json.dumps(pool_counts, ensure_ascii=False))
     print(f'[V0.9.51股票池分类] 明细已生成: {pool_diag}')
