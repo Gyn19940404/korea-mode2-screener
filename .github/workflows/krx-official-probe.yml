@@ -1,15 +1,12 @@
-name: KRX网页当日行情验证
+name: verify NAVER same-day replay
 
 on:
   workflow_dispatch:
     inputs:
       trade_date:
-        description: "交易日 YYYYMMDD"
+        description: "验证交易日 YYYYMMDD"
         required: true
         default: "20261007"
-
-permissions:
-  contents: read
 
 jobs:
   verify:
@@ -20,12 +17,13 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install requests
-      - name: 抓取KRX Data Marketplace 当日行情
+      - name: 验证NAVER fchart是否包含目标交易日
         env:
-          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           TRADE_DATE: ${{ inputs.trade_date }}
         run: python scripts/krx_official_probe.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: krx-marketplace-${{ inputs.trade_date }}
-          path: .data_cache/krx_marketplace_probe.json
+          name: naver-fchart-probe
+          path: .data_cache/naver_fchart_probe.json
+          if-no-files-found: ignore
