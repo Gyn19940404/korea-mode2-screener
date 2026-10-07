@@ -785,11 +785,22 @@ def main():
     # 3) NXT 官方20:00最终数据（官网约20分钟延迟，因此任务安排在20:30 KST）
     history_latest_date = max(h[-1][0] for h in histories.values() if h)
     kst_now = datetime.now(timezone(timedelta(hours=9)))
-    expected_date = kst_now.strftime('%Y-%m-%d')
-    print(f'历史数据最新交易日: {history_latest_date} | KST运行日期: {expected_date}')
+    calendar_today = kst_now.strftime('%Y-%m-%d')
 
-    # V0.9.48：优先直接验证“今天”是否存在NXT正式成交数据。
-    # 若今天有足够NXT股票，说明是交易日，即使FDR/NAVER历史仍滞后一天，也强制生成今天K线。
+    # V0.9.56：盘前/凌晨手动运行时，绝不能把“日历今天”当成已完成交易日。
+    # 只有 KST 20:20 以后才允许尝试当天NXT最终数据；此前直接使用历史源确认的最近交易日。
+    # 这样凌晨、早晨、盘中、周末/休市日手动运行，都不会因为当天累计量为0而误报解析失败。
+    after_market_complete = (
+        kst_now.weekday() < 5 and
+        (kst_now.hour > 20 or (kst_now.hour == 20 and kst_now.minute >= 20))
+    )
+    expected_date = calendar_today if after_market_complete else history_latest_date
+    print(
+        f'历史数据最新交易日: {history_latest_date} | KST运行时间: {kst_now.strftime("%Y-%m-%d %H:%M:%S")} | '
+        f'日历今天: {calendar_today} | 目标交易日: {expected_date} | 20:20后={after_market_complete}'
+    )
+
+    # V0.9.56：20:20后才验证今天；其余时间抓最近已完成交易日。
     today_nxt = fetch_nxt_official(expected_date)
     if len(today_nxt) >= 300:
         latest_trade_date = expected_date
