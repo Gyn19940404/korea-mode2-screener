@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.33 Toss月平均成交额7股反推诊断版
+V0.9.55 9/14新制综合行情口径版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：NAVER polling 的综合成交额优先；NXT仅在NAVER值缺失时补充，避免重复相加
@@ -30,6 +30,7 @@ CACHE_DIR = ROOT / '.data_cache'
 CACHE = CACHE_DIR / 'history_cache.json.gz'
 
 HISTORY_DAYS = 240
+NEW_MARKET_RULE_DATE = '2026-09-14'  # KRX After Market 16:00~20:00 + NXT新制生效
 MAX_WORKERS_HISTORY = 10
 MAX_WORKERS_QUOTE = 16
 RETRIES = 3
@@ -851,14 +852,28 @@ def main():
 
         q['price'] = nx_price
         q['daychg'] = ((nx_price / q['prevClose'] - 1) * 100) if q.get('prevClose') else sf(nx.get('pct'))
-        # V0.9.35：与 Toss 单日成交额对表确认：单日成交额 = KRX/NAVER aa + NXT accTrval。
-        # 例如 삼성SDI：1728.3亿 + 1392.2亿 = 3120.5亿，与 Toss 完全一致。
-        # 因此有 NXT 成交额时直接相加；没有 NXT 的股票保持 KRX/NAVER 成交额。
+        # V0.9.55（2026-09-14新制）：
+        # KRX 自 9/14 起新增 16:00~20:00 After Market，旧的16:00~18:00时间外单一价废止；
+        # NXT 仍有 Pre/Main/After。模式2收盘复盘的“当日综合量价”必须覆盖两交易所当日成交。
+        #
+        # 当前可取得的公开原始口径：
+        #   NAVER aq/aa = KRX侧当日累计成交量/成交额（20:30后抓取，包含KRX当日最终累计值）
+        #   NXT accTdQty/accTrval = NXT侧当日累计成交量/成交额
+        # 因而 9/14 后正式综合公式固定为：
+        #   综合成交量 = KRX当日累计成交量 + NXT当日累计成交量
+        #   综合成交额 = KRX当日累计成交额 + NXT当日累计成交额
+        # 不再使用“收盘价×成交量”估算当天成交额，也不把NXT值覆盖KRX值。
         krx_value = si(q.get('krxTurnoverWon'))
-        q['turnoverWon'] = krx_value + nx_value if nx_value > 0 else krx_value
-        # V0.9.29：同一最终时点对表确认 Toss 成交量≈NAVER/KRX aq + NXT 当日累计成交量。
-        # NXT acctTdQty 为当日累计量；有NXT时使用综合成交量，无NXT时保持NAVER/KRX。
-        q['volume'] = si(q.get('krxVolume')) + nx_volume
+        krx_volume = si(q.get('krxVolume'))
+        if latest_trade_date >= NEW_MARKET_RULE_DATE:
+            q['turnoverWon'] = krx_value + nx_value
+            q['volume'] = krx_volume + nx_volume
+            q['marketRule'] = 'POST_20260914_KRX_AFTER_PLUS_NXT'
+        else:
+            # 旧日期保留旧数据口径，避免用新制度反改历史。
+            q['turnoverWon'] = krx_value + nx_value if nx_value > 0 else krx_value
+            q['volume'] = krx_volume + nx_volume
+            q['marketRule'] = 'LEGACY_PRE_20260914'
         merged_nxt += 1
 
     # V0.9.39：把单日成交额三个口径彻底拆开保存，先诊断，不再猜Toss公式。
