@@ -1,4 +1,4 @@
-name: verify KRX 12001 auto CSV
+name: verify KRX 12001 browser download
 
 on:
   workflow_dispatch:
@@ -21,9 +21,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests pandas
+        run: pip install pandas selenium openpyxl
 
-      - name: Download KRX 12001 CSV
+      - name: Browser download KRX 12001
         env:
           TRADE_DATE: ${{ inputs.trade_date }}
         run: python scripts/krx_official_probe.py
