@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.55 9/14新制综合行情口径版
+V0.9.57 NAVER fchart 当日复盘修复版
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：NAVER polling 的综合成交额优先；NXT仅在NAVER值缺失时补充，避免重复相加
@@ -103,45 +103,63 @@ def universe():
 
 
 def fetch_history(code, old):
-    end = datetime.now()
-    if old:
-        last = datetime.strptime(old[-1][0], '%Y-%m-%d')
-        start = last - timedelta(days=10)
-    else:
-        start = end - timedelta(days=430)
+    """
+    V0.9.57：历史日线直接读取 NAVER fchart。
+    目的：绕开 FinanceDataReader 日线在收盘后偶发晚一天的问题。
+    NAVER fchart 返回的最后一根K线就是网页复盘所用交易日；成交额历史仍按
+    close*volume 作为旧历史近似值，精确收盘快照会继续由后续流程覆盖。
+    """
+    url = 'https://fchart.stock.naver.com/sise.nhn'
+    params = {
+        'symbol': code,
+        'timeframe': 'day',
+        'count': str(HISTORY_DAYS + 20),
+        'requestType': '0',
+    }
     err = None
     for a in range(RETRIES):
         try:
-            df = fdr.DataReader(f'NAVER:{code}', start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
-            if df is None or df.empty:
-                raise RuntimeError('历史数据为空')
+            r = session().get(url, params=params, timeout=15)
+            r.raise_for_status()
+            txt = r.text
+            # item data="YYYYMMDD|open|high|low|close|volume"
+            rows = re.findall(r'data="(\d{8})\|([^"]+)"', txt)
+            if len(rows) < 20:
+                raise RuntimeError(f'NAVER fchart有效历史不足20日: {len(rows)}')
+
             fresh = []
-            for idx, r in df.iterrows():
-                c = si(r.get('Close')); v = si(r.get('Volume'))
+            for ds, vals in rows:
+                p = vals.split('|')
+                if len(p) < 5:
+                    continue
+                o, h, l, c, v = [si(x) for x in p[:5]]
                 if c <= 0:
                     continue
-                # 第8字段 0 = 历史估算；1 = 已由收盘快照校正
-                fresh.append([idx.strftime('%Y-%m-%d'), si(r.get('Open')), si(r.get('High')), si(r.get('Low')), c, v, c * v, 0])
+                d = f'{ds[:4]}-{ds[4:6]}-{ds[6:8]}'
+                fresh.append([d, o, h, l, c, v, c * v, 0])
+
+            if len(fresh) < 20:
+                raise RuntimeError(f'NAVER fchart解析后历史不足20日: {len(fresh)}')
 
             old_map = {x[0]: x for x in (old or [])}
             merged = dict(old_map)
             for row in fresh:
                 prev = old_map.get(row[0])
-                # 已经保存过精确收盘/NXT快照的数据，不再被FDR日线覆盖
+                # 已保存的精确收盘/NXT快照不被近似历史覆盖
                 if prev and len(prev) >= 8 and si(prev[7]) == 1:
                     merged[row[0]] = prev
                 else:
                     merged[row[0]] = row
+
             hist = [merged[k] for k in sorted(merged)][-HISTORY_DAYS:]
-            if len(hist) < 20:
-                raise RuntimeError('有效历史不足20日')
+            print(f'[NAVER fchart] {code} 最新={hist[-1][0]} 共{len(hist)}日')
             return hist
         except Exception as e:
             err = e
             time.sleep(1.2 * (a + 1))
-    print(f'[历史失败] {code}: {err}')
-    return old or []
 
+    print(f'[NAVER fchart失败] {code}: {err}')
+    return old or []
 
 def fetch_quote(code):
     """获取 Naver KRX 收盘快照。NXT 最终价改由 NXT 官方页面单独获取。"""
@@ -1012,8 +1030,8 @@ def main():
         'kosdaq_count': sum(x['market'] == 'KOSDAQ' for x in res),
         'total_count': len(res),
         'history_days': HISTORY_DAYS,
-        'source': 'FinanceDataReader(NAVER history) + NAVER polling(KRX) + NXT official 20:00 close',
-        'update_mode': 'V0.9.48 当日交易日强制校验 + 240日缓存增量 + KRX收盘 + NXT官方最终数据',
+        'source': 'NAVER fchart(history) + NAVER polling(KRX) + NXT official 20:00 close',
+        'update_mode': 'V0.9.57 NAVER fchart交易日强制校验 + 240日缓存增量 + KRX收盘 + NXT官方最终数据',
         'nxt_count': nxt_count,
         'snapshot_rule': 'V0.9.39成交额原始拆分诊断：正式筛选暂保持现有口径；额外保存krxTurnoverWon/nxtTurnoverWon/combinedTurnoverWon，并输出turnover_raw_diagnostic.csv用于与Toss逐日对表',
     }
