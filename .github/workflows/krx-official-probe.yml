@@ -1,0 +1,31 @@
+name: KRX官方10股验证
+
+on:
+  workflow_dispatch:
+    inputs:
+      trade_date:
+        description: "交易日 YYYYMMDD"
+        required: true
+        default: "20261007"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: 抓取KRX官方KOSPI+KOSDAQ数据
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          TRADE_DATE: ${{ inputs.trade_date }}
+        run: python scripts/krx_official_probe.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: krx-official-10stocks-${{ inputs.trade_date }}
+          path: .data_cache/krx_official_10stocks.json
