@@ -2,83 +2,71 @@
 import os, json, requests
 from datetime import datetime, timedelta, timezone
 
-VERSION="KRX PROBE V6 STRICT-DATE"
-KST=timezone(timedelta(hours=9))
-INPUT_DATE=os.environ.get("TRADE_DATE") or datetime.now(KST).strftime("%Y%m%d")
-KEY=os.environ.get("KRX_API_KEY","").strip()
+VERSION="KRX MARKETPLACE PROBE V1"
+DATE=os.environ.get("TRADE_DATE","20261007")
+TARGETS={"005930":"삼성전자","000660":"SK하이닉스","009150":"삼성전기","105560":"KB금융","047040":"대우건설"}
+BASE="https://data.krx.co.kr"
+# KRX Data Marketplace [12001] 전종목 시세 backend used by the web statistics screen.
+CANDIDATES=[
+ ("MDCSTAT01501","/comm/bldAttendant/getJsonData.cmd"),
+]
+PARAMS={
+ "bld":"dbms/MDC/STAT/standard/MDCSTAT01501",
+ "locale":"ko_KR",
+ "mktId":"STK",
+ "trdDd":DATE,
+ "share":"1",
+ "money":"1",
+ "csvxls_isNo":"false",
+}
+
+s=requests.Session()
+s.headers.update({
+ "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36",
+ "Referer":BASE+"/contents/MDC/MAIN/main/index.cmd",
+ "Origin":BASE,
+ "Accept":"application/json, text/javascript, */*; q=0.01",
+ "X-Requested-With":"XMLHttpRequest",
+})
 print(VERSION)
-print("INPUT_DATE:",INPUT_DATE)
-print("KEY_PRESENT:",bool(KEY),"KEY_LENGTH:",len(KEY))
-if not KEY: raise RuntimeError("KRX_API_KEY missing")
+print("TRADE_DATE:",DATE)
+# establish cookies/session first
+home=s.get(BASE+"/contents/MDC/MAIN/main/index.cmd",timeout=30)
+print("HOME_HTTP:",home.status_code,"cookies",len(s.cookies))
 
-TARGETS={"005930":"삼성전자","000660":"SK하이닉스","402340":"SK스퀘어","009150":"삼성전기","105560":"KB금융","034020":"두산에너빌리티","006400":"삼성SDI","042700":"한미반도체","028300":"HLB","047040":"대우건설"}
-URLS={"KOSPI":"https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd","KOSDAQ":"https://data-dbg.krx.co.kr/svc/apis/sto/ksq_bydd_trd"}
-
-def request_day(market,date):
-    r=requests.get(URLS[market],headers={"AUTH_KEY":KEY,"Accept":"application/json"},params={"basDd":date},timeout=30)
+out={}
+for label,path in CANDIDATES:
+    r=s.post(BASE+path,data=PARAMS,timeout=30)
+    print("ENDPOINT:",label,"HTTP",r.status_code,"bytes",len(r.content),"type",r.headers.get("content-type"))
+    print("BODY_PREFIX:",r.text[:180].replace("\n"," "))
     if r.status_code!=200:
-        print(market,date,"HTTP",r.status_code,"BODY",r.text[:300])
-        return None
-    data=r.json()
-    items=data.get("OutBlock_1") or data.get("output") or []
-    print(market,date,"HTTP 200 rows",len(items))
-    return items
-
-start=datetime.strptime(INPUT_DATE,"%Y%m%d")
-selected=None
-selected_data=None
-exact_date_available=False
-print("\n=== AUTO DATE BACKTRACK ===")
-for offset in range(10):
-    d=(start-timedelta(days=offset)).strftime("%Y%m%d")
-    kospi=request_day("KOSPI",d)
-    kosdaq=request_day("KOSDAQ",d)
-    if kospi is not None and kosdaq is not None and len(kospi)>0 and len(kosdaq)>0:
-        selected=d
-        selected_data={"KOSPI":kospi,"KOSDAQ":kosdaq}
-        exact_date_available=(d==INPUT_DATE)
-        print("SELECTED_DATE:",selected)
-        break
-if not selected:
-    raise RuntimeError("No populated KOSPI+KOSDAQ date found in 10-day lookback")
-
-def num(v):
-    try:return int(str(v).replace(",","").strip() or 0)
-    except (TypeError,ValueError):return 0
-
-rows={}
-for market,items in selected_data.items():
-    for x in items:
-        code=str(x.get("ISU_CD","")).strip()
+        continue
+    try:data=r.json()
+    except Exception as e:
+        print("JSON_ERROR:",repr(e)); continue
+    print("TOP_KEYS:",list(data.keys())[:20])
+    blocks=[]
+    for k,v in data.items():
+        if isinstance(v,list):
+            print("LIST_BLOCK:",k,"rows",len(v))
+            if v: blocks.append((k,v))
+    rows=max(blocks,key=lambda x:len(x[1]))[1] if blocks else []
+    if rows:
+        print("SAMPLE_KEYS:",list(rows[0].keys())[:30])
+    for x in rows:
+        code=str(x.get("ISU_SRT_CD") or x.get("ISU_CD") or x.get("short_code") or "").strip()
         if code in TARGETS:
-            rows[code]={"market":market,"code":code,"name":x.get("ISU_NM") or TARGETS[code],
-                "close":num(x.get("TDD_CLSPRC")),"change":x.get("CMPPREVDD_PRC"),"pct":x.get("FLUC_RT"),
-                "volume":num(x.get("ACC_TRDVOL")),"turnoverWon":num(x.get("ACC_TRDVAL")),
-                "marketCapWon":num(x.get("MKTCAP")),"listedShares":num(x.get("LIST_SHRS"))}
+            out[code]=x
 
-print("EXACT_DATE_AVAILABLE:", exact_date_available)
-if not exact_date_available:
-    print("DATE_MISMATCH: requested",INPUT_DATE,"but latest populated KRX date is",selected)
-    print("VALIDATION_STATUS: BLOCKED_FOR_KB_TOSS_COMPARISON")
-else:
-    print("VALIDATION_STATUS: EXACT_DATE_OK")
-
-print("\n=== KRX OFFICIAL 10-STOCK CHECK",selected,"===")
+print("FOUND_TARGETS:",len(out),"/",len(TARGETS))
 for code,name in TARGETS.items():
-    x=rows.get(code)
+    x=out.get(code)
     if not x:
-        print(code,name,"NOT FOUND"); continue
-    print(f'{code} {name} | price={x["close"]:,} | volume={x["volume"]:,} | turnover={x["turnoverWon"]/1e8:.1f}亿 | mcap={x["marketCapWon"]/1e12:.3f}兆 | shares={x["listedShares"]:,}')
-print("FOUND_TARGETS:",len(rows),"/",len(TARGETS))
-print("\n=== BOUNDARY AUDIT ===")
-print("Purpose: KRX official daily fields are the KRX-side baseline only.")
-print("Do NOT infer consolidated KRX+NXT from ACC_TRDVOL/ACC_TRDVAL.")
-print("Audit fields: close, volume, turnover, marketCap, listedShares.")
-print("Next acceptance test: compare this KRX baseline + official NXT against KB/Toss, stock by stock.")
-print("CONTROL_NO_NXT: 047040 대우건설 should match KRX-side broker data without an NXT addition.")
-print("HIGH_DELTA_TARGET: 009150 삼성전기 is the priority mismatch diagnostic.")
-if len(rows)<8: raise RuntimeError(f"Only {len(rows)}/10 target stocks found")
+        print(code,name,"NOT_FOUND"); continue
+    print(code,name,json.dumps(x,ensure_ascii=False)[:1000])
 
 os.makedirs(".data_cache",exist_ok=True)
-with open(".data_cache/krx_official_10stocks.json","w",encoding="utf-8") as f:
-    json.dump({"version":VERSION,"inputDate":INPUT_DATE,"selectedDate":selected,"exactDateAvailable":exact_date_available,"validationStatus":"EXACT_DATE_OK" if exact_date_available else "BLOCKED_DATE_MISMATCH","stocks":list(rows.values())},f,ensure_ascii=False,indent=2)
+with open(".data_cache/krx_marketplace_probe.json","w",encoding="utf-8") as f:
+    json.dump({"version":VERSION,"date":DATE,"targets":out},f,ensure_ascii=False,indent=2)
+if not out:
+    raise RuntimeError("Marketplace endpoint returned no target rows; inspect diagnostics")
