@@ -2,7 +2,7 @@
 import os, json, requests
 from datetime import datetime, timedelta, timezone
 
-VERSION="KRX PROBE V4 AUTO-DATE"
+VERSION="KRX PROBE V5 BOUNDARY-AUDIT"
 KST=timezone(timedelta(hours=9))
 INPUT_DATE=os.environ.get("TRADE_DATE") or datetime.now(KST).strftime("%Y%m%d")
 KEY=os.environ.get("KRX_API_KEY","").strip()
@@ -61,6 +61,13 @@ for code,name in TARGETS.items():
         print(code,name,"NOT FOUND"); continue
     print(f'{code} {name} | price={x["close"]:,} | volume={x["volume"]:,} | turnover={x["turnoverWon"]/1e8:.1f}亿 | mcap={x["marketCapWon"]/1e12:.3f}兆 | shares={x["listedShares"]:,}')
 print("FOUND_TARGETS:",len(rows),"/",len(TARGETS))
+print("\n=== BOUNDARY AUDIT ===")
+print("Purpose: KRX official daily fields are the KRX-side baseline only.")
+print("Do NOT infer consolidated KRX+NXT from ACC_TRDVOL/ACC_TRDVAL.")
+print("Audit fields: close, volume, turnover, marketCap, listedShares.")
+print("Next acceptance test: compare this KRX baseline + official NXT against KB/Toss, stock by stock.")
+print("CONTROL_NO_NXT: 047040 대우건설 should match KRX-side broker data without an NXT addition.")
+print("HIGH_DELTA_TARGET: 009150 삼성전기 is the priority mismatch diagnostic.")
 if len(rows)<8: raise RuntimeError(f"Only {len(rows)}/10 target stocks found")
 
 os.makedirs(".data_cache",exist_ok=True)
