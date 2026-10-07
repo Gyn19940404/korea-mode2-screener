@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 KST=timezone(timedelta(hours=9))
 DATE=os.environ.get("TRADE_DATE") or (datetime.now(KST)-timedelta(days=1)).strftime("%Y%m%d")
-KEY=os.environ["KRX_API_KEY"].strip()
+KEY=os.environ["KRX_API_KEY"].strip()\nprint("KRX PROBE V2")\nprint("TRADE_DATE:", DATE)\nprint("KEY_PRESENT:", bool(KEY), "KEY_LENGTH:", len(KEY))
 TARGETS={"005930":"삼성전자","000660":"SK하이닉스","402340":"SK스퀘어","009150":"삼성전기","105560":"KB금융","034020":"두산에너빌리티","006400":"삼성SDI","042700":"한미반도체","028300":"HLB","047040":"대우건설"}
 URLS=[
  ("KOSPI","https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd"),
