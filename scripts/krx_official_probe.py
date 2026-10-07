@@ -15,7 +15,7 @@ def num(v):
     except:return 0
 rows={}
 for market,url in URLS:
-    r=requests.get(url,headers={"AUTH_KEY":KEY},params={"basDd":DATE},timeout=30)
+    r=requests.get(url,headers={"AUTH_KEY":KEY,"Accept":"application/json"},params={"basDd":DATE},timeout=30)
     print(market,"HTTP",r.status_code,"bytes",len(r.content))
     r.raise_for_status()
     data=r.json()
