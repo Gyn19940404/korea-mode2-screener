@@ -2,7 +2,7 @@
 import os, json, requests
 from datetime import datetime, timedelta, timezone
 
-VERSION="KRX PROBE V5 BOUNDARY-AUDIT"
+VERSION="KRX PROBE V6 STRICT-DATE"
 KST=timezone(timedelta(hours=9))
 INPUT_DATE=os.environ.get("TRADE_DATE") or datetime.now(KST).strftime("%Y%m%d")
 KEY=os.environ.get("KRX_API_KEY","").strip()
@@ -27,6 +27,7 @@ def request_day(market,date):
 start=datetime.strptime(INPUT_DATE,"%Y%m%d")
 selected=None
 selected_data=None
+exact_date_available=False
 print("\n=== AUTO DATE BACKTRACK ===")
 for offset in range(10):
     d=(start-timedelta(days=offset)).strftime("%Y%m%d")
@@ -35,6 +36,7 @@ for offset in range(10):
     if kospi is not None and kosdaq is not None and len(kospi)>0 and len(kosdaq)>0:
         selected=d
         selected_data={"KOSPI":kospi,"KOSDAQ":kosdaq}
+        exact_date_available=(d==INPUT_DATE)
         print("SELECTED_DATE:",selected)
         break
 if not selected:
@@ -54,6 +56,13 @@ for market,items in selected_data.items():
                 "volume":num(x.get("ACC_TRDVOL")),"turnoverWon":num(x.get("ACC_TRDVAL")),
                 "marketCapWon":num(x.get("MKTCAP")),"listedShares":num(x.get("LIST_SHRS"))}
 
+print("EXACT_DATE_AVAILABLE:", exact_date_available)
+if not exact_date_available:
+    print("DATE_MISMATCH: requested",INPUT_DATE,"but latest populated KRX date is",selected)
+    print("VALIDATION_STATUS: BLOCKED_FOR_KB_TOSS_COMPARISON")
+else:
+    print("VALIDATION_STATUS: EXACT_DATE_OK")
+
 print("\n=== KRX OFFICIAL 10-STOCK CHECK",selected,"===")
 for code,name in TARGETS.items():
     x=rows.get(code)
@@ -72,4 +81,4 @@ if len(rows)<8: raise RuntimeError(f"Only {len(rows)}/10 target stocks found")
 
 os.makedirs(".data_cache",exist_ok=True)
 with open(".data_cache/krx_official_10stocks.json","w",encoding="utf-8") as f:
-    json.dump({"version":VERSION,"inputDate":INPUT_DATE,"selectedDate":selected,"stocks":list(rows.values())},f,ensure_ascii=False,indent=2)
+    json.dump({"version":VERSION,"inputDate":INPUT_DATE,"selectedDate":selected,"exactDateAvailable":exact_date_available,"validationStatus":"EXACT_DATE_OK" if exact_date_available else "BLOCKED_DATE_MISMATCH","stocks":list(rows.values())},f,ensure_ascii=False,indent=2)
