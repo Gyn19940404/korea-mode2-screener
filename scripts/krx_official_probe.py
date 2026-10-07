@@ -10,6 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 DATE=os.environ.get("TRADE_DATE","20261007")
 BASE="https://data.krx.co.kr"
 PAGE=BASE+"/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101"
+DIRECT=BASE+"/contents/MDC/STAT/standard/MDCSTAT01501/index.cmd"
 DOWNLOAD=Path.cwd()/".data_cache/krx_browser_download"
 DOWNLOAD.mkdir(parents=True,exist_ok=True)
 
@@ -34,17 +35,23 @@ try:
     wait=WebDriverWait(driver,30)
     wait.until(lambda d:d.execute_script("return document.readyState")=="complete")
     time.sleep(5)
+    if "error" in (driver.title or "").lower() or not driver.find_elements(By.CSS_SELECTOR,"input"):
+        print("MDI_LOADER_UNAVAILABLE -> DIRECT_PAGE")
+        driver.get(DIRECT)
+        wait.until(lambda d:d.execute_script("return document.readyState")=="complete")
+        time.sleep(5)
     print("PAGE_TITLE",driver.title)
     print("PAGE_URL",driver.current_url)
     print("COOKIES",len(driver.get_cookies()))
 
     # KRX MDI页面是动态装载的；优先按常见查询日期控件寻找。
     date_el=None
-    for sel in ["input[name='trdDd']","#trdDd","input.hasDatepicker"]:
+    for sel in ["input[name='trdDd']","#trdDd","input[name*='Dd']","input.hasDatepicker"]:
         els=driver.find_elements(By.CSS_SELECTOR,sel)
         if els:
             date_el=els[0]; print("DATE_SELECTOR",sel); break
     if date_el is None:
+        print("BODY_PREFIX", driver.find_element(By.TAG_NAME,"body").text[:1500].replace("\n"," | "))
         raise RuntimeError("未找到查询日期控件")
 
     driver.execute_script("arguments[0].removeAttribute('readonly');",date_el)
