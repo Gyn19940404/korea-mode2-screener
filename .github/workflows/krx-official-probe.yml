@@ -1,4 +1,4 @@
-name: verify NAVER same-day replay
+name: verify KRX 12001 auto CSV
 
 on:
   workflow_dispatch:
@@ -16,14 +16,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install requests
-      - name: 验证NAVER fchart是否包含目标交易日
+      - run: pip install requests pandas
+      - name: 自动下载KRX 12001 전종목 시세 CSV
         env:
           TRADE_DATE: ${{ inputs.trade_date }}
         run: python scripts/krx_official_probe.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: naver-fchart-probe
-          path: .data_cache/naver_fchart_probe.json
+          name: krx-12001-probe
+          path: |\n            .data_cache/krx_12001_probe.json\n            .data_cache/krx_12001_probe.csv
           if-no-files-found: ignore
