@@ -150,6 +150,35 @@ for code, krx_avg, combined_avg, nxt_avg, margin, ndays, kdays in combined_only_
     if combined_avg - threshold != margin:
         raise SystemExit(f"Threshold margin mismatch: {code}")
 
+# Stress-test observed NXT contribution without asserting a real-world error rate.
+# Integer arithmetic applies the haircut to the 20-day NXT sum before flooring.
+stress_rows = []
+for code, krx_avg, combined_avg, nxt_avg, margin, ndays, kdays in combined_only_rows:
+    ledger = daily_by_code[code]
+    ksum = sum(r[2] for r in ledger)
+    nsum = sum(r[3] for r in ledger)
+    nmax = max(r[3] for r in ledger)
+    sorted_n = sorted((r[3] for r in ledger), reverse=True)
+    stress_avgs = [(ksum + nsum * (100 - pct) // 100) // 20 for pct in (1, 3, 5)]
+    # A single large NXT session can dominate the average; flag, do not exclude.
+    largest_day_share_pct = round(nmax * 100 / nsum, 3) if nsum else 0
+    top3_share_pct = round(sum(sorted_n[:3]) * 100 / nsum, 3) if nsum else 0
+    stress_rows.append([code, krx_avg, combined_avg, margin, nxt_avg,
+                        *stress_avgs, *["PASS" if x >= threshold else "FAIL" for x in stress_avgs],
+                        largest_day_share_pct, top3_share_pct,
+                        "REVIEW" if largest_day_share_pct >= 25 else "NO_25PCT_FLAG"])
+    if (ksum + nsum) // 20 != combined_avg:
+        raise SystemExit(f"Stress baseline mismatch: {code}")
+with (OUT / "combined_only_stress_20d.csv").open("w", encoding="utf-8-sig", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["code", "krx_avg20_won", "combined_avg20_won", "margin_won",
+                "nxt_avg20_won", "haircut_1pct_avg20_won", "haircut_3pct_avg20_won",
+                "haircut_5pct_avg20_won", "haircut_1pct_status",
+                "haircut_3pct_status", "haircut_5pct_status",
+                "largest_nxt_day_share_pct", "top3_nxt_days_share_pct",
+                "nxt_concentration_flag"])
+    w.writerows(sorted(stress_rows, key=lambda r: r[3]))
+
 with (OUT / "historical_only_codes.csv").open("w", encoding="utf-8-sig", newline="") as f:
     w = csv.writer(f)
     w.writerow(["code", "all_240d_observed_days", "first_observed_date", "last_observed_date", "recent_20d_observed_days", "interpretation"])
@@ -190,6 +219,15 @@ report += [
     f"逐日证据：combined_only_daily_evidence.csv 共{len(combined_only_daily)}行；逐股核对20日覆盖、KRX/NXT/合计及门槛余量。",
     f"KRX单市场已达标股票合计：{sum(krx_proven.values())}只；按NXT记录覆盖分布：{dict(krx_proven)}。",
     "对于缺少NXT记录的股票，只计算已观察成交额的保守下界，不补零，也不推断精确综合均值。",
+    "",
+    "## 24只合并后达标股票：NXT贡献压力测试",
+    "假设性情景：仅将已记录NXT成交额分别下调1%、3%、5%；KRX不变；不是对真实数据误差的估计。",
+    f"1%情景仍达标={sum(r[8] == 'PASS' for r in stress_rows)}；跌破门槛={sum(r[8] == 'FAIL' for r in stress_rows)}。",
+    f"3%情景仍达标={sum(r[9] == 'PASS' for r in stress_rows)}；跌破门槛={sum(r[9] == 'FAIL' for r in stress_rows)}。",
+    f"5%情景仍达标={sum(r[10] == 'PASS' for r in stress_rows)}；跌破门槛={sum(r[10] == 'FAIL' for r in stress_rows)}。",
+    f"NXT最大单日贡献占20日NXT总额至少25%的股票={sum(r[13] == 'REVIEW' for r in stress_rows)}只；仅作异常复核标记，不代表数据错误。",
+    "完整逐股结果见combined_only_stress_20d.csv，按门槛余量从小到大排序。",
+    "压力测试证明门槛敏感性，不证明NXT资格、缺失日为零或官方综合成交额口径。",
     "",
     "## 下一步所需独立证据",
     "需要带日期、股票代码和交易资格/停牌状态的权威NXT清单，以及成交列表缺行是否代表零成交的官方定义。",
