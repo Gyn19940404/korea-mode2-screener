@@ -1,0 +1,45 @@
+name: NXT历史成交额覆盖测试（不修改正式网页）
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_dates:
+        description: "可选：逗号分隔的YYYY-MM-DD日期，留空使用9个默认样本"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  nxt-history-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Selenium
+        run: pip install selenium
+      - name: Syntax validation
+        run: python -m py_compile scripts/nxt_history_probe.py
+      - name: Probe NXT historical dates
+        env:
+          NXT_TEST_DATES: ${{ inputs.test_dates }}
+        run: python scripts/nxt_history_probe.py
+      - name: Add audit summary
+        if: always()
+        run: |
+          if [ -f nxt_history_probe/audit_report.md ]; then
+            cat nxt_history_probe/audit_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload diagnostic files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxt-history-probe
+          path: nxt_history_probe/
+          if-no-files-found: warn
