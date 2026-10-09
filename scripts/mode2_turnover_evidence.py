@@ -21,7 +21,10 @@ for r in data:
     if k<0 or (n is not None and n<0):raise SystemExit("Negative turnover")
     h[c][d]=(k,n)
 p={r["code"]:r for r in prior}
-if len(p)!=len(prior) or set(p)!=set(h):raise SystemExit("Universe mismatch")
+if len(p)!=len(prior):raise SystemExit("Duplicate codes in threshold audit")
+missing_in_daily=sorted(set(p)-set(h))
+missing_in_gate=sorted(set(h)-set(p))
+print(f"Universe diagnostic: gate={len(p)}, daily={len(h)}, missing_in_daily={len(missing_in_daily)}, missing_in_gate={len(missing_in_gate)}")
 rows=[];daily=[];counts=Counter()
 for c,history in sorted(h.items()):
     km=[d for d in window if d not in history]
@@ -35,8 +38,10 @@ for c,history in sorted(h.items()):
         status="PASS" if ca>=50_000_000_000 else "FAIL"
     elif ka>=50_000_000_000:basis="PASS_BY_KRX_LOWER_BOUND";status="PASS"
     else:basis="UNKNOWN";status="UNKNOWN"
-    old=p[c]
-    if old["threshold_500eok_decision"]!=basis or int(old["krx_days"])!=kd or int(old["nxt_observed_days"])!=nd:
+    old=p.get(c)
+    if old is None:
+        counts["MISSING_IN_GATE"]+=1
+    elif old["threshold_500eok_decision"]!=basis or int(old["krx_days"])!=kd or int(old["nxt_observed_days"])!=nd:
         raise SystemExit("Audit mismatch: "+c)
     counts[basis]+=1
     rows.append([window[-1],c,status,basis,kd,nd,"" if ka is None else ka,"" if ca is None else ca,";".join(km),";".join(nm),"NOT_VERIFIED"])
@@ -47,9 +52,13 @@ def write(name,header,records):
     with (O/name).open("w",encoding="utf-8-sig",newline="") as f:
         w=csv.writer(f);w.writerow(header);w.writerows(records)
 write("stock_evidence.csv",["asof","code","gate","basis","krx_days","nxt_days","krx_avg20_won","verified_combined_avg20_won","missing_krx_dates","missing_nxt_dates","website_field_verified"],rows)
+write("universe_discrepancy.csv",["code","issue"],[[c,"MISSING_IN_DAILY"] for c in missing_in_daily]+[[c,"MISSING_IN_GATE"] for c in missing_in_gate])
 write("daily_evidence.csv",["code","date","krx_turnover_won","nxt_turnover_won","combined_if_verified_won"],daily)
 report=["# 模式2逐股20日官方成交额证据审计（不发布）",f"窗口：{window[0]}～{window[-1]}；股票：{len(rows)}；逐日记录：{len(daily)}"]
 report += [f"- {key}: {val}" for key,val in sorted(counts.items())]
 report += ["NXT缺失保持空值，不视作零。","网站字段尚未核对；本任务不修改网站，不发布，不触发交易。"]
 (O/"audit_report.md").write_text("\n".join(report)+"\n",encoding="utf-8")
 print("\n".join(report))
+print(f"Universe discrepancies: missing_in_daily={len(missing_in_daily)}, missing_in_gate={len(missing_in_gate)}")
+if missing_in_daily or missing_in_gate:
+    raise SystemExit("Universe mismatch: see universe_discrepancy.csv artifact")
