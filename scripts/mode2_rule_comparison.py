@@ -100,6 +100,33 @@ report = [
     "## 20日门槛PASS、其他条件通过、但1日默认未通过（最多30只）",
     sample(lambda r: r["20d_gate_candidate"] == "PASS" and r["site_default_1d_pass"] == "NO"),
     "",
+    "## 第十二阶段：逐股证据和排除原因（仅诊断）",
+    "### 20日达标、其余条件通过，但网页默认排除",
+    *[
+        f'- {r["name"]}({r["code"]}): 网页排除项={r["site_default_reasons"] or "无"}；'
+        f'网页1日成交额={r["daily_turnover_100m_site"]}亿韩元；'
+        f'20日依据={r["20d_basis"]}；KRX天数={r["krx_days"]}；NXT观察天数={r["nxt_observed_days"]}'
+        for r in rows if r["20d_gate_candidate"] == "PASS" and r["site_default_1d_pass"] == "NO"
+    ],
+    "",
+    "### 网页默认通过股票：20日门槛证据",
+    *[
+        f'- {r["name"]}({r["code"]}): 20日状态={r["20d_gate"]}；'
+        f'依据={r["20d_basis"]}；KRX天数={r["krx_days"]}；NXT观察天数={r["nxt_observed_days"]}'
+        for r in rows if r["site_default_1d_pass"] == "YES"
+    ],
+    "",
+    "### 其他条件通过、20日仍未知的股票",
+    *[
+        f'- {r["name"]}({r["code"]}): 20日状态={r["20d_gate"]}；'
+        f'KRX天数={r["krx_days"]}；NXT观察天数={r["nxt_observed_days"]}'
+        for r in rows if r["20d_gate_candidate"] == "UNKNOWN"
+    ],
+    "",
+    "## 关键防错核验",
+    f'网站默认通过但20日非PASS数量：{counts["DEFAULT_PASS_NOT_20D_VERIFIED"]}',
+    f'20日PASS但网页默认未通过数量：{counts["20D_PASS_NOT_DEFAULT"]}',
+    "不能仅凭PASS总数断定双市场20日完整，必须查看逐股basis字段。",
     "注意：PASS_BY_KRX_LOWER_BOUND只证明达到门槛，不代表综合20日平均成交额的精确数值。",
     "UNKNOWN及无记录保持未知；不能当成零成交或不达标。",
     "本报告是Python独立镜像，不是浏览器DOM运行；需进一步核对浏览器实际11只名单。",
