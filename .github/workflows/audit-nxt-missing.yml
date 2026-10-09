@@ -1,0 +1,35 @@
+name: NXT缺失记录分类审计（不发布）
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  missing-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download latest merged history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name krx-nxt-240d-merge-audit --dir merged_240d_audit
+          test -f merged_240d_audit/krx_nxt_daily_turnover.csv
+      - name: Syntax validation
+        run: python -m py_compile scripts/audit_nxt_missing.py
+      - name: Classify missing NXT rows
+        run: python scripts/audit_nxt_missing.py
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f nxt_missing_audit/audit_report.md ]; then cat nxt_missing_audit/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxt-missing-20d-audit
+          path: nxt_missing_audit/
+          if-no-files-found: warn
