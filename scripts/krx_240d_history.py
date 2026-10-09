@@ -52,7 +52,7 @@ def request_day(day):
                 parsed = {}
                 for row in rows:
                     code = str(row.get("ISU_CD", "")).strip()
-                    if len(code) != 6 or not code.isdigit():
+                    if len(code) != 6 or not code.isalnum():
                         continue
                     if str(row.get("BAS_DD", ds)).strip() != ds:
                         raise ValueError(f"date mismatch: {code}")
