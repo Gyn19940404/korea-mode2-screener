@@ -19,6 +19,8 @@ jobs:
           python-version: "3.11"
       - name: Install FinanceDataReader
         run: pip install --disable-pip-version-check finance-datareader
+      - name: Python syntax validation
+        run: python -m py_compile scripts/fdr_compare.py
       - name: Run independent comparison
         run: |
           set +e
