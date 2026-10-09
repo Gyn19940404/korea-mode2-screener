@@ -1,0 +1,34 @@
+name: 模式2网站股票池对照（不发布）
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  site-compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download audited three-state gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name mode2-turnover-gate-test --dir mode2_turnover_gate_test
+          test -f mode2_turnover_gate_test/mode2_turnover_gate.csv
+      - name: Audit public site stock universe
+        run: |
+          python -m py_compile scripts/mode2_site_diff.py
+          python scripts/mode2_site_diff.py
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f mode2_site_diff/audit_report.md ]; then cat mode2_site_diff/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mode2-site-gate-comparison
+          path: mode2_site_diff/
+          if-no-files-found: warn
