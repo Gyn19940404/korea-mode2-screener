@@ -46,6 +46,13 @@ for c in sorted(set(p)|set(h)):
         counts["MISSING_IN_GATE"]+=1
     elif old["threshold_500eok_decision"]!=basis or int(old["krx_days"])!=kd or int(old["nxt_observed_days"])!=nd:
         raise SystemExit("Audit mismatch: "+c)
+    if old is not None:
+        expected_krx = "" if ka is None else str(ka)
+        expected_combined = "" if ca is None else str(ca)
+        if old["krx_avg20_won"] != expected_krx:
+            raise SystemExit(f"KRX average mismatch: {c}; computed={expected_krx}; prior={old['krx_avg20_won']}")
+        if old["combined_avg20_won_if_verified"] != expected_combined:
+            raise SystemExit(f"Combined average mismatch: {c}; computed={expected_combined}; prior={old['combined_avg20_won_if_verified']}")
     counts[basis]+=1
     rows.append([window[-1],c,status,basis,kd,nd,"" if ka is None else ka,"" if ca is None else ca,";".join(km),";".join(nm),"NOT_VERIFIED"])
     for d in window:
@@ -60,7 +67,7 @@ write("daily_evidence.csv",["code","date","krx_turnover_won","nxt_turnover_won",
 report=["# 模式2逐股20日官方成交额证据审计（不发布）",f"窗口：{window[0]}～{window[-1]}；股票：{len(rows)}；逐日记录：{len(daily)}"]
 report += [f"- {key}: {val}" for key,val in sorted(counts.items())]
 report += [f"股票池差异：门槛池有、最近20日逐日池无={len(missing_in_daily)}；反向={len(missing_in_gate)}。这不等于全240日无数据。", "逐只首末交易日期见universe_discrepancy.csv；未验证股票仍保持UNKNOWN。"]
-report += ["NXT缺失保持空值，不视作零。","网站字段尚未核对；本任务不修改网站，不发布，不触发交易。"]
+report += ["本次逐股复核不仅比对PASS/FAIL状态，还比对KRX与双市场20日均成交额的精确整数值。","NXT缺失保持空值，不视作零。","网站字段尚未核对；本任务不修改网站，不发布，不触发交易。"]
 (O/"audit_report.md").write_text("\n".join(report)+"\n",encoding="utf-8")
 print("\n".join(report))
 print(f"Universe discrepancies: missing_in_daily={len(missing_in_daily)}, missing_in_gate={len(missing_in_gate)}")
