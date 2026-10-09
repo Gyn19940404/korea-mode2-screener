@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Diagnostic: separate NXT observation coverage from unverified eligibility.
+No trading, no website updates, no inference of zero turnover.
+"""
+import csv
+from collections import Counter, defaultdict
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "merged_240d_audit" / "krx_nxt_daily_turnover.csv"
+OUT = ROOT / "nxt_eligibility_diagnostic"
+OUT.mkdir(exist_ok=True)
+
+def read(path):
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
+
+raw = read(SOURCE)
+dates = sorted({r["date"].replace("-", "") for r in raw})
+if len(dates) != 240:
+    raise SystemExit(f"Expected 240 KRX sessions, got {len(dates)}")
+window = dates[-20:]
+history = defaultdict(dict)
+for r in raw:
+    d = r["date"].replace("-", "")
+    if d not in window:
+        continue
+    code = r["code"]
+    if d in history[code]:
+        raise SystemExit(f"Duplicate code/day: {code}/{d}")
+    k = int(r["krx_turnover_won"])
+    n = int(r["nxt_turnover_won"]) if r["nxt_turnover_won"] else None
+    if k < 0 or (n is not None and n < 0):
+        raise SystemExit(f"Negative turnover: {code}/{d}")
+    history[code][d] = (k, n)
+
+prior_path = ROOT / "turnover_evidence_20d" / "stock_evidence.csv"
+prior = {r["code"]: r for r in read(prior_path)} if prior_path.exists() else {}
+codes = sorted(set(history) | set(prior))
+rows = []
+stats = Counter()
+for code in codes:
+    h = history.get(code, {})
+    kdays = sum(d in h for d in window)
+    ndays = sum(d in h and h[d][1] is not None for d in window)
+    krx_avg = sum(h[d][0] for d in window if d in h) // 20 if kdays == 20 else None
+    if kdays < 20:
+        coverage = "KRX_HISTORY_SHORT"
+    elif ndays == 20:
+        coverage = "NXT_REPORTED_ALL_20"
+    elif ndays == 0:
+        coverage = "NXT_NOT_REPORTED_ANY_20"
+    else:
+        coverage = "NXT_REPORTED_SOME_20"
+    if kdays == 20 and krx_avg >= 50_000_000_000:
+        bound = "PASS_BY_KRX_ALONE"
+    elif kdays == 20:
+        bound = "KRX_ALONE_INSUFFICIENT"
+    else:
+        bound = "KRX_HISTORY_INSUFFICIENT"
+    # A non-reported NXT record is not evidence of ineligibility or zero turnover.
+    eligibility = "NOT_ESTABLISHED"
+    stats[(coverage, bound)] += 1
+    missing = [d for d in window if d not in h or h[d][1] is None]
+    rows.append([code, coverage, eligibility, bound, kdays, ndays,
+                 "" if krx_avg is None else krx_avg,
+                 ";".join(missing), ""])
+with (OUT / "eligibility_coverage_20d.csv").open("w", encoding="utf-8-sig", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["code", "nxt_coverage", "nxt_eligibility", "krx_lower_bound",
+                "krx_days", "nxt_reported_days", "krx_avg20_won",
+                "nxt_unreported_dates", "authoritative_eligibility_source"])
+    w.writerows(rows)
+
+report = [
+    "# NXT资格与记录缺失：独立诊断（不发布）",
+    f"窗口：{window[0]}～{window[-1]}；股票：{len(rows)}",
+    "重要：NXT成交记录出现过，不足以证明该股在窗口内每一天均具交易资格。",
+    "重要：NXT成交记录缺失，不能证明该股不具资格、停牌或当日零成交。",
+    "因此资格字段统一为NOT_ESTABLISHED，等待独立权威逐日资格/状态清单。",
+    "KRX单市场20日均成交额达到500亿韩元时，可以单独证明综合成交额下界达标；这不等于已验证综合均值。",
+    "",
+    "## 覆盖与KRX下界交叉统计",
+]
+for (coverage, bound), n in sorted(stats.items()):
+    report.append(f"- {coverage} / {bound}: {n}")
+report += [
+    "",
+    "## 下一步所需独立证据",
+    "需要带日期、股票代码和交易资格/停牌状态的权威NXT清单，以及成交列表缺行是否代表零成交的官方定义。",
+    "未取得证据前，不把NOT_REPORTED转换为零，不把NOT_ESTABLISHED转换为不具资格。",
+    "本脚本不修改正式网页、不发布、不触发交易。",
+]
+(OUT / "audit_report.md").write_text("\n".join(report) + "\n", encoding="utf-8")
+print("\n".join(report))
