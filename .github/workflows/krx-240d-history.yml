@@ -1,0 +1,46 @@
+name: KRX官方240交易日成交额审计（不修改正式网页）
+
+on:
+  workflow_dispatch:
+    inputs:
+      end_date:
+        description: "截止日期 YYYY-MM-DD（留空使用当前韩国日期）"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  krx-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install requests
+        run: pip install requests
+      - name: Python syntax validation
+        run: python -m py_compile scripts/krx_240d_history.py
+      - name: Download and audit official KRX daily turnover
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          KRX_HISTORY_END: ${{ inputs.end_date }}
+        run: python scripts/krx_240d_history.py
+      - name: Add audit to job summary
+        if: always()
+        run: |
+          if [ -f krx_240d_official/audit_report.md ]; then
+            cat krx_240d_official/audit_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload raw dataset and audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: krx-240d-official-turnover
+          path: krx_240d_official/
+          if-no-files-found: warn
