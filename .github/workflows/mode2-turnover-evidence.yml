@@ -17,13 +17,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh run download --repo "${{ github.repository }}" --name krx-nxt-240d-merge-audit --dir merged_240d_audit
-          gh run download --repo "${{ github.repository }}" --name nxt-forensic-500eok-audit --dir nxt_forensic_audit
           test -f merged_240d_audit/krx_nxt_daily_turnover.csv
-          test -f nxt_forensic_audit/threshold_500eok_20d.csv
+      - name: Rebuild threshold from exactly the downloaded daily snapshot
+        run: |
+          python -m py_compile scripts/nxt_forensic_audit.py
+          python scripts/nxt_forensic_audit.py
       - name: Run stock-by-stock evidence audit
         run: |
           python -m py_compile scripts/mode2_turnover_evidence.py
           python scripts/mode2_turnover_evidence.py
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          files = [Path("merged_240d_audit/krx_nxt_daily_turnover.csv"), Path("nxt_forensic_audit/threshold_500eok_20d.csv")]
+          manifest = {"provenance": "threshold regenerated in this workflow from the same merged daily CSV", "files": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}
+          Path("turnover_evidence_20d/source_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
       - name: Summary
         if: always()
         run: |
