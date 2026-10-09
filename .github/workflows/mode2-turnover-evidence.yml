@@ -1,0 +1,36 @@
+name: 模式2逐股20日成交额证据审计（不发布）
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download official audit artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name krx-nxt-240d-merge-audit --dir merged_240d_audit
+          gh run download --repo "${{ github.repository }}" --name nxt-forensic-500eok-audit --dir nxt_forensic_audit
+          test -f merged_240d_audit/krx_nxt_daily_turnover.csv
+          test -f nxt_forensic_audit/threshold_500eok_20d.csv
+      - name: Run stock-by-stock evidence audit
+        run: |
+          python -m py_compile scripts/mode2_turnover_evidence.py
+          python scripts/mode2_turnover_evidence.py
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f turnover_evidence_20d/audit_report.md ]; then cat turnover_evidence_20d/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mode2-20d-stock-evidence
+          path: turnover_evidence_20d/
+          if-no-files-found: warn
