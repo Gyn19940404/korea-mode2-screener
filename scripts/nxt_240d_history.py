@@ -71,7 +71,7 @@ try:
         for row in records:
             reason = None
             code=str(row.get("isuSrdCd") or "")[-6:]
-            if len(code)!=6 or not code.isdigit():
+            if len(code)!=6 or not code.isalnum():
                 missing.append(str(row.get("isuSrdCd")))
                 rejected.append((ds, "INVALID_CODE", json.dumps(row, ensure_ascii=False)))
                 continue
