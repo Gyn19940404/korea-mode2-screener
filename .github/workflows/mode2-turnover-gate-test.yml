@@ -1,0 +1,36 @@
+name: 模式2成交额三态测试（不发布）
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  gate-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download audited history and turnover decisions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name krx-nxt-240d-merge-audit --dir merged_240d_audit
+          gh run download --repo "${{ github.repository }}" --name nxt-forensic-500eok-audit --dir nxt_forensic_audit
+          test -f merged_240d_audit/krx_nxt_daily_turnover.csv
+          test -f nxt_forensic_audit/threshold_500eok_20d.csv
+      - name: Syntax validation and three-state gate
+        run: |
+          python -m py_compile scripts/mode2_turnover_gate_test.py
+          python scripts/mode2_turnover_gate_test.py
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f mode2_turnover_gate_test/audit_report.md ]; then cat mode2_turnover_gate_test/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mode2-turnover-gate-test
+          path: mode2_turnover_gate_test/
+          if-no-files-found: warn
