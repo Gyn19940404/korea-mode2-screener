@@ -1,0 +1,29 @@
+name: KRX Open API three-day lag probe
+on:
+  workflow_dispatch:
+    inputs:
+      test_dates:
+        description: "Dates newest to oldest (YYYYMMDD comma-separated)"
+        required: true
+        default: "20261009,20261008,20261007"
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Compare KRX API publication dates
+        env:
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          AUTH_KEY: ${{ secrets.AUTH_KEY }}
+          TEST_DATES: ${{ inputs.test_dates }}
+        run: python scripts/krx_lag_probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: krx-lag-probe
+          path: .data_cache/krx_lag_probe.json
+          if-no-files-found: ignore
