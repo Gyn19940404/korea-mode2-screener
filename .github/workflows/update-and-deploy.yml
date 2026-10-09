@@ -40,6 +40,8 @@ jobs:
         run: python -m py_compile scripts/update_data.py
 
       - name: Generate current trading day data
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
         shell: bash
         run: |
           set -e
