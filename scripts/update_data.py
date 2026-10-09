@@ -212,6 +212,45 @@ def fetch_quote(code):
     return None
 
 
+def fetch_krx_official_daily(target_date):
+    """Official KRX daily volume/turnover by date; never use live NAVER as historical proxy."""
+    import os
+    key = os.environ.get('KRX_API_KEY', '').strip()
+    if not key:
+        raise RuntimeError('KRX_API_KEY secret missing: refuse to publish unverified daily turnover')
+    day = target_date.replace('-', '')
+    out = {}
+    for market, endpoint, minimum in (
+        ('KOSPI', 'stk_bydd_trd', MIN_KOSPI),
+        ('KOSDAQ', 'ksq_bydd_trd', MIN_KOSDAQ),
+    ):
+        resp = requests.get(
+            'https://data-dbg.krx.co.kr/svc/apis/sto/' + endpoint,
+            params={'basDd': day},
+            headers={'AUTH_KEY': key, 'User-Agent': UA},
+            timeout=40,
+        )
+        resp.raise_for_status()
+        rows = resp.json().get('OutBlock_1', [])
+        if not isinstance(rows, list) or len(rows) < minimum:
+            raise RuntimeError(f'KRX official {market} {day} incomplete: {len(rows) if isinstance(rows,list) else 0}')
+        for row in rows:
+            code = str(row.get('ISU_CD', '')).strip()
+            if len(code) != 6 or not code.isdigit():
+                continue
+            if str(row.get('BAS_DD', day)).strip() != day:
+                raise RuntimeError(f'KRX official date mismatch for {code}: {row.get("BAS_DD")}')
+            out[code] = {
+                'volume': si(row.get('ACC_TRDVOL')),
+                'turnover': si(row.get('ACC_TRDVAL')),
+                'close': si(row.get('TDD_CLSPRC')),
+            }
+        print(f'[KRX Open API] {target_date} {market}: {len(rows)} records')
+    if len(out) < MIN_TOTAL_STOCKS:
+        raise RuntimeError(f'KRX official coverage too small: {len(out)}')
+    return out
+
+
 def fetch_nxt_official(target_date):
     """
     V0.9.17：不再点击 NXT 网页按钮。
@@ -841,6 +880,24 @@ def main():
         print(f'[V0.9.48当日校验] 今日未确认完整交易数据 -> 保留最近交易日={latest_trade_date}')
         nxt_official = fetch_nxt_official(latest_trade_date)
 
+    # Use official KRX dated trading data, not the current NAVER polling snapshot.
+    # Keep NXT final price logic unchanged. Never mix historical KRX with current-day NAVER.
+    krx_official = fetch_krx_official_daily(latest_trade_date)
+    matched_krx = 0
+    for code, q in quotes.items():
+        official = krx_official.get(code)
+        if not official:
+            continue
+        q['krxVolume'] = official['volume']
+        q['krxTurnoverWon'] = official['turnover']
+        q['volume'] = official['volume']
+        q['turnoverWon'] = official['turnover']
+        q['krxOfficialClose'] = official['close']
+        q['krxDataSource'] = 'KRX_OPEN_API'
+        matched_krx += 1
+    print(f'[KRX Open API] matched quote records: {matched_krx}/{len(quotes)}')
+    if matched_krx < MIN_TOTAL_STOCKS:
+        raise RuntimeError('Official KRX matched coverage insufficient; refuse publication')
     for q in quotes.values():
         q['tradeDate'] = latest_trade_date
 
