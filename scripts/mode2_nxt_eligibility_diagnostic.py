@@ -54,6 +54,7 @@ krx_proven = Counter()
 complete_krx_pass = 0
 boundary_rows = []
 combined_only_rows = []
+combined_only_daily = []
 for code in codes:
     h = history.get(code, {})
     kdays = sum(d in h for d in window)
@@ -87,6 +88,11 @@ for code in codes:
     if complete_avg is not None and complete_avg >= threshold and krx_avg < threshold:
         combined_only_rows.append([code, krx_avg, complete_avg, complete_avg - krx_avg,
                                    complete_avg - threshold, ndays, kdays])
+        for day in window:
+            k, n = h[day]
+            if n is None:
+                raise SystemExit(f"Unexpected missing NXT day for combined-only PASS: {code}/{day}")
+            combined_only_daily.append([code, day, k, n, k + n])
     if complete_avg is not None:
         exact_complete["PASS" if complete_avg >= threshold else "FAIL"] += 1
     if kdays == 20 and krx_avg >= threshold:
@@ -121,6 +127,28 @@ with (OUT / "combined_only_pass_20d.csv").open("w", encoding="utf-8-sig", newlin
     w.writerow(["code", "krx_avg20_won", "combined_avg20_won", "nxt_avg20_contribution_won",
                 "margin_above_threshold_won", "nxt_days", "krx_days"])
     w.writerows(sorted(combined_only_rows, key=lambda r: r[4]))
+
+with (OUT / "combined_only_daily_evidence.csv").open("w", encoding="utf-8-sig", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["code", "date", "krx_turnover_won", "nxt_turnover_won", "combined_turnover_won"])
+    w.writerows(sorted(combined_only_daily, key=lambda r: (r[0], r[1])))
+
+# Independently reconcile each 20-row daily ledger to its per-stock aggregate.
+daily_by_code = defaultdict(list)
+for row in combined_only_daily:
+    daily_by_code[row[0]].append(row)
+for code, krx_avg, combined_avg, nxt_avg, margin, ndays, kdays in combined_only_rows:
+    ledger = daily_by_code[code]
+    if len(ledger) != 20 or len({r[1] for r in ledger}) != 20:
+        raise SystemExit(f"Daily ledger coverage mismatch: {code}")
+    if sum(r[2] for r in ledger) // 20 != krx_avg:
+        raise SystemExit(f"KRX daily-to-aggregate mismatch: {code}")
+    if sum(r[4] for r in ledger) // 20 != combined_avg:
+        raise SystemExit(f"Combined daily-to-aggregate mismatch: {code}")
+    if sum(r[3] for r in ledger) // 20 != nxt_avg:
+        raise SystemExit(f"NXT daily-to-aggregate mismatch: {code}")
+    if combined_avg - threshold != margin:
+        raise SystemExit(f"Threshold margin mismatch: {code}")
 
 with (OUT / "historical_only_codes.csv").open("w", encoding="utf-8-sig", newline="") as f:
     w = csv.writer(f)
@@ -159,6 +187,7 @@ report += [
     "逐股边界证据见turnover_pass_boundary_20d.csv；不能把交集重复计入候选股票数。",
     f"仅靠NXT贡献才达标股票：{len(combined_only_rows)}只；见combined_only_pass_20d.csv，按超过门槛的幅度升序排列。",
     "这份表记录NXT贡献和门槛余量，但不是权威交易资格确认，也不能替代独立官方口径校验。",
+    f"逐日证据：combined_only_daily_evidence.csv 共{len(combined_only_daily)}行；逐股核对20日覆盖、KRX/NXT/合计及门槛余量。",
     f"KRX单市场已达标股票合计：{sum(krx_proven.values())}只；按NXT记录覆盖分布：{dict(krx_proven)}。",
     "对于缺少NXT记录的股票，只计算已观察成交额的保守下界，不补零，也不推断精确综合均值。",
     "",
