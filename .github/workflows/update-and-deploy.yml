@@ -75,6 +75,19 @@ jobs:
           print("股票数:", meta.get("total_count"))
           PY
 
+      - name: Audit six-stock website volumes and turnover
+        run: |
+          python scripts/verify_published_data.py
+          cat data_audit_report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload compact data audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-data-audit
+          path: data_audit_report.md
+          if-no-files-found: ignore
+
       - name: Commit generated data
         run: |
           git config user.name "github-actions[bot]"
