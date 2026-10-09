@@ -22,7 +22,7 @@ if not KEY:
     raise SystemExit("KRX_API_KEY missing")
 KST = timezone(timedelta(hours=9))
 TODAY = datetime.now(KST).date()
-END = os.environ.get("KRX_HISTORY_END", TODAY.isoformat())
+END = (os.environ.get("KRX_HISTORY_END") or "").strip() or TODAY.isoformat()
 END_DATE = datetime.strptime(END, "%Y-%m-%d").date()
 if END_DATE > TODAY:
     raise SystemExit("End date is in the future")
