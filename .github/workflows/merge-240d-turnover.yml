@@ -1,0 +1,40 @@
+name: KRX NXT 240日合并审计（不发布）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  merge-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download latest KRX and NXT artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name krx-240d-official-turnover --dir krx_240d_official
+          gh run download --repo "${{ github.repository }}" --name nxt-240d-official-turnover --dir nxt_240d_official
+          test -f krx_240d_official/manifest.json
+          test -f nxt_240d_official/date_coverage.csv
+      - name: Validate script syntax
+        run: python -m py_compile scripts/merge_240d_turnover.py
+      - name: Merge and audit
+        run: python scripts/merge_240d_turnover.py
+      - name: Publish summary
+        if: always()
+        run: |
+          if [ -f merged_240d_audit/audit_report.md ]; then cat merged_240d_audit/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload merged audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: krx-nxt-240d-merge-audit
+          path: merged_240d_audit/
+          if-no-files-found: warn
