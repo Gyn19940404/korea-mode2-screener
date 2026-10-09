@@ -1,0 +1,34 @@
+name: NXT缺失取证及500亿门槛审计（不发布）
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  forensic-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download verified merged history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name krx-nxt-240d-merge-audit --dir merged_240d_audit
+          test -f merged_240d_audit/krx_nxt_daily_turnover.csv
+      - name: Validate and audit
+        run: |
+          python -m py_compile scripts/nxt_forensic_audit.py
+          python scripts/nxt_forensic_audit.py
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f nxt_forensic_audit/audit_report.md ]; then cat nxt_forensic_audit/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nxt-forensic-500eok-audit
+          path: nxt_forensic_audit/
+          if-no-files-found: warn
