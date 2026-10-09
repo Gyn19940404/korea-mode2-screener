@@ -36,6 +36,7 @@ body:new URLSearchParams(arguments[0]).toString()})
 """
 coverage=[]
 data=[]
+rejected=[]
 try:
     driver.get("https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do")
     WebDriverWait(driver,30).until(EC.presence_of_element_located((By.ID,"trade1")))
@@ -68,9 +69,11 @@ try:
         duplicate=[]
         parsed=[]
         for row in records:
+            reason = None
             code=str(row.get("isuSrdCd") or "")[-6:]
             if len(code)!=6 or not code.isdigit():
                 missing.append(str(row.get("isuSrdCd")))
+                rejected.append((ds, "INVALID_CODE", json.dumps(row, ensure_ascii=False)))
                 continue
             if code in seen:
                 duplicate.append(code)
@@ -85,6 +88,7 @@ try:
                     raise ValueError("negative")
             except (ValueError,TypeError):
                 missing.append(code)
+                rejected.append((ds, "INVALID_VALUE_OR_VOLUME", json.dumps(row, ensure_ascii=False)))
                 continue
             parsed.append((ds,code,v,q))
         status="OK"
@@ -101,11 +105,13 @@ finally:
     driver.quit()
 with (OUT/"nxt_daily_turnover.csv").open("w",encoding="utf-8-sig",newline="") as f:
     w=csv.writer(f);w.writerow(["date","code","nxt_turnover_won","nxt_volume_shares"]);w.writerows(data)
+with (OUT/"rejected_records.csv").open("w",encoding="utf-8-sig",newline="") as f:
+    w=csv.writer(f);w.writerow(["date","reason","raw_record_json"]);w.writerows(rejected)
 with (OUT/"date_coverage.csv").open("w",encoding="utf-8-sig",newline="") as f:
     w=csv.writer(f);w.writerow(["date","status","records","parsed","reported_total","duplicates","missing","missing_sample","error"]);w.writerows(coverage)
 counts={}
 for _,status,*_ in coverage: counts[status]=counts.get(status,0)+1
-report=["# NXT 240交易日成交额采集审计",f"KRX基准交易日：{len(dates)}；NXT返回记录：{len(data):,}",f"状态统计：{json.dumps(counts,ensure_ascii=False)}","NXT只覆盖其交易股票；缺少某只股票不自动解释为零成交。","本任务不修改正式网页，也不自动与KRX合并。","","## 非完整日期"]
+report=["# NXT 240交易日成交额采集审计",f"KRX基准交易日：{len(dates)}；NXT返回记录：{len(data):,}",f"状态统计：{json.dumps(counts,ensure_ascii=False)}",f"未解析原始记录：{len(rejected)}条，详见 rejected_records.csv","NXT只覆盖其交易股票；缺少某只股票不自动解释为零成交。","本任务不修改正式网页，也不自动与KRX合并。","","## 非完整日期"]
 report += [f"- {d}: {st} 原始{n} 有效{p} 报告{t} 未解析{miss} {err}" for d,st,n,p,t,dup,miss,sample,err in coverage if st!="OK"][:50] or ["- 无"]
 (OUT/"audit_report.md").write_text("\n".join(report)+"\n",encoding="utf-8")
 print("\n".join(report),flush=True)
