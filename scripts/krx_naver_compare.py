@@ -24,7 +24,7 @@ for code,name in codes.items():
         item["krx"]={k:row.get(k) for k in ("BAS_DD","ISU_CD","ISU_NM","TDD_CLSPRC","ACC_TRDVOL","ACC_TRDVAL","MKTCAP")}
     try:
         r=s.get("https://fchart.stock.naver.com/sise.nhn",params={"symbol":code,"timeframe":"day","count":30,"requestType":0},timeout=20);r.raise_for_status()
-        matches=re.findall(r'data="(\\d{8})\\|([^"]+)"',r.text)
+        matches=re.findall(r'data="(\d{8})\|([^"]+)"',r.text)
         hit=next((v for d,v in matches if d==date),None)
         item["naver_fchart_ohlcv"]=hit.split("|")[:5] if hit else None
         item["naver_latest_date"]=matches[-1][0] if matches else None
