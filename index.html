@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>韩股模式2选股器 V0.9.51 数据校准版</title>
+<title>韩股模式2选股器 · KRX/NXT 官方量额版</title>
 <style>
 body{margin:0;font-family:Arial,"Microsoft YaHei","Noto Sans KR",sans-serif;background:#f6f7f9;color:#171a21}
 header{height:60px;background:#fff;border-bottom:1px solid #e8ebf0;display:flex;align-items:center;padding:0 24px;gap:10px}
@@ -46,7 +46,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
 .chart-box{position:relative}
 .chart-tip{position:absolute;display:none;pointer-events:none;z-index:20;background:rgba(17,24,39,.94);color:#fff;padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.55;box-shadow:0 4px 16px rgba(0,0,0,.18);white-space:nowrap}
 </style></head>
-<body><header><div class="logo">韩股模式2选股器</div><span class="ver">V0.9.51 数据校准版</span><div style="margin-left:auto;color:#7b8494;font-size:12px">数据日期：2026-09-11 收盘</div></header>
+<body><header><div class="logo">韩股模式2选股器</div><span class="ver">KRX/NXT 官方量额版</span><div id="headerDataDate" style="margin-left:auto;color:#7b8494;font-size:12px">读取交易日期…</div></header>
 <div class="layout">
 <aside class="sidebar">
   <div class="side-label">我的策略</div>
@@ -66,7 +66,7 @@ th:nth-child(2),td:nth-child(2),th:nth-child(7),td:nth-child(7){text-align:left}
     <button class="refresh-btn" onclick="location.reload()">刷新网页数据</button>
   </div>
 </div>
-<div class="notice">V0.9.51 数据校准版：正在校准股票池、NAVER/NXT量价口径及三时间点快照；诊断项仅用于与 Toss / KB 对表，不参与筛选和评分。正式筛选逻辑与成交量/成交额合并公式暂未改变。</div>
+<div class="notice">数据源说明：每日成交量与成交额采用 KRX Open API + NXT 官方数据；NXT 最终价格与历史 NAVER K 线分别保留。仅当最新数据更新任务成功后，网页才会显示新交易日。历史成交额可能包含近似值，最近20日平均成交额仍需进一步校验。</div>
 <div class="card filters">
 <div class="f" data-filter="capOn"><input id="capOn" type="checkbox" checked>市值 ≥ <input id="cap" type="number" value="5000"> 亿</div>
 <div class="f" data-filter="chgOn"><input id="chgOn" type="checkbox" checked>近 <input id="chgDays" type="number" min="1" max="239" value="5"> 日涨幅 <input id="wmin" type="number" value="3">% ～ <input id="wmax" type="number" value="15">%</div>
@@ -172,10 +172,14 @@ function updateDataStatus(){
   const el=document.getElementById("dataStatus");
   if(!el) return;
   if(!stocks.length){
+    const header=document.getElementById("headerDataDate");
+    if(header) header.textContent="暂无有效数据";
     el.textContent="当前没有市场数据。请检查 GitHub Actions 是否更新成功。";
     return;
   }
   const latest=dataMeta.latest_date||"未知交易日";
+  const header=document.getElementById("headerDataDate");
+  if(header) header.textContent="数据日期："+latest+" 收盘";
   const updated=dataMeta.updated_at||"";
   const total=dataMeta.total_count||stocks.length;
   const k1=dataMeta.kospi_count||stocks.filter(s=>s.market==="KOSPI").length;
