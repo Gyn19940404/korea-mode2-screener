@@ -27,7 +27,9 @@ lines = [
 ]
 errors = []
 def read_volume(symbol, code):
-    # KRX backend may reject very short periods; query a wider window, then select DATE.\n    start = "2026-09-01" if symbol.startswith("KRX:") else DATE\n    frame = fdr.DataReader(symbol, start, END)
+    # KRX backend may reject very short periods; query a wider window, then select DATE.
+    start = "2026-09-01" if symbol.startswith("KRX:") else DATE
+    frame = fdr.DataReader(symbol, start, END)
     if frame is None or frame.empty:
         raise ValueError("empty dataframe")
     dated = frame.loc[frame.index.strftime("%Y-%m-%d") == DATE]
@@ -55,4 +57,5 @@ lines.append("")
 lines.append("判读：FDR KRX和FDR NAVER是否可用取决于安装版本及上游接口。数值差异不能直接证明盘前/盘后遗漏；需取得按交易时段拆分的官方成交量才能归因。")
 Path("fdr_comparison_report.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
 print("\n".join(lines))
-if errors:\n    print("PARTIAL RESULT: some FDR sources unavailable; report preserved for investigation")
+if errors:
+    print("PARTIAL RESULT: some FDR sources unavailable; report preserved for investigation")
