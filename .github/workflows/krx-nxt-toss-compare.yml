@@ -1,0 +1,30 @@
+name: KRX NXT Toss volume reconciliation
+on:
+  workflow_dispatch:
+    inputs:
+      trade_date:
+        description: "Trading date YYYYMMDD; Toss screenshot baseline is 20261008"
+        required: true
+        default: "20261008"
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: KRX official plus NXT official against Toss screenshot
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          TRADE_DATE: ${{ inputs.trade_date }}
+        run: python -m scripts.krx_nxt_toss_compare
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: krx-nxt-toss-comparison
+          path: .data_cache/krx_nxt_toss_compare.json
+          if-no-files-found: ignore
