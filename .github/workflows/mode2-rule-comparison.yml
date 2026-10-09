@@ -1,0 +1,34 @@
+name: 模式2第十一阶段同日成交额口径逐股对照（不发布）
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download dated verified gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name mode2-turnover-gate-test --dir mode2_turnover_gate_test
+          test -f mode2_turnover_gate_test/mode2_turnover_gate.csv
+      - name: Validate and compare exact-date scenarios
+        run: |
+          python -m py_compile scripts/mode2_exact_filter_audit.py scripts/mode2_rule_comparison.py
+          python scripts/mode2_rule_comparison.py
+      - name: Publish diagnostic summary
+        if: always()
+        run: |
+          if [ -f mode2_rule_comparison/audit_report.md ]; then cat mode2_rule_comparison/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mode2-rule-comparison
+          path: mode2_rule_comparison/
+          if-no-files-found: warn
