@@ -48,6 +48,9 @@ if recent_only:
     raise SystemExit(f"Unexpected recent-only codes: {recent_only[:10]}")
 rows = []
 stats = Counter()
+threshold = 50_000_000_000
+exact_complete = Counter()
+krx_proven = Counter()
 for code in codes:
     h = history.get(code, {})
     kdays = sum(d in h for d in window)
@@ -67,18 +70,32 @@ for code in codes:
         bound = "KRX_ALONE_INSUFFICIENT"
     else:
         bound = "KRX_HISTORY_INSUFFICIENT"
+    # The 20-day sum is exact only when both venue observations exist for every day.
+    # For missing NXT rows, observed turnover is a lower bound, never a zero fill.
+    observed_sum = sum(k + (n if n is not None else 0) for k, n in h.values())
+    observed_lower_bound_avg = observed_sum // 20 if kdays == 20 else None
+    complete_avg = observed_lower_bound_avg if kdays == 20 and ndays == 20 else None
+    if complete_avg is not None:
+        exact_complete["PASS" if complete_avg >= threshold else "FAIL"] += 1
+    if kdays == 20 and krx_avg >= threshold:
+        krx_proven[coverage] += 1
     # A non-reported NXT record is not evidence of ineligibility or zero turnover.
     eligibility = "NOT_ESTABLISHED"
     stats[(coverage, bound)] += 1
     missing = [d for d in window if d not in h or h[d][1] is None]
     rows.append([code, coverage, eligibility, bound, kdays, ndays,
                  "" if krx_avg is None else krx_avg,
-                 ";".join(missing), ""])
+                 ";".join(missing), "",
+                 "" if observed_lower_bound_avg is None else observed_lower_bound_avg,
+                 "" if complete_avg is None else complete_avg,
+                 "COMPLETE_OBSERVATIONS_NOT_ELIGIBILITY_PROOF" if complete_avg is not None else "INCOMPLETE_OR_UNVERIFIED"])
 with (OUT / "eligibility_coverage_20d.csv").open("w", encoding="utf-8-sig", newline="") as f:
     w = csv.writer(f)
     w.writerow(["code", "nxt_coverage", "nxt_eligibility", "krx_lower_bound",
                 "krx_days", "nxt_reported_days", "krx_avg20_won",
-                "nxt_unreported_dates", "authoritative_eligibility_source"])
+                "nxt_unreported_dates", "authoritative_eligibility_source",
+                "observed_avg20_lower_bound_won", "complete_observation_avg20_won",
+                "turnover_observation_basis"])
     w.writerows(rows)
 
 with (OUT / "historical_only_codes.csv").open("w", encoding="utf-8-sig", newline="") as f:
@@ -105,6 +122,12 @@ for (coverage, bound), n in sorted(stats.items()):
 if sum(stats.values()) != len(rows):
     raise SystemExit("Coverage category count does not equal stock universe")
 report += [
+    "",
+    "## 独立成交额计算交叉检查",
+    f"20日KRX与NXT都有记录：门槛达标{exact_complete['PASS']}只；不达标{exact_complete['FAIL']}只。",
+    "这里的完整仅指成交额记录覆盖，不证明逐日NXT交易资格或市场口径已被权威核准。",
+    f"KRX单市场已达标股票合计：{sum(krx_proven.values())}只；按NXT记录覆盖分布：{dict(krx_proven)}。",
+    "对于缺少NXT记录的股票，只计算已观察成交额的保守下界，不补零，也不推断精确综合均值。",
     "",
     "## 下一步所需独立证据",
     "需要带日期、股票代码和交易资格/停牌状态的权威NXT清单，以及成交列表缺行是否代表零成交的官方定义。",
