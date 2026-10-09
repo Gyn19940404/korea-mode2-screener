@@ -1,0 +1,35 @@
+name: FDR独立行情对照（不影响正式发布）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-fdr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install FinanceDataReader
+        run: pip install --disable-pip-version-check finance-datareader
+      - name: Run independent comparison
+        run: |
+          set +e
+          python scripts/fdr_compare.py
+          code=$?
+          cat fdr_comparison_report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $code
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fdr-comparison-report
+          path: fdr_comparison_report.md
+          if-no-files-found: ignore
