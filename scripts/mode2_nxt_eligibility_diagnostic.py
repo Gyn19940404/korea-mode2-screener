@@ -282,7 +282,7 @@ report += [
     "压力测试证明门槛敏感性，不证明NXT资格、缺失日为零或官方综合成交额口径。",
     "",
     "## 第二十一阶段：双向敏感性与风险交集（不发布）",
-    f"24只合并后达标股：5%下调跌破门槛={sum(r[16] == 'FAIL' for r in scenario_rows)}只；NXT单日集中度标记={sum(r[21] in ('BOTH', 'NXT_DAY_CONCENTRATION') for r in scenario_rows)}只。",
+    f"24只合并后达标股：5%下调跌破门槛={sum(r[14] == 'FAIL' for r in scenario_rows)}只；NXT单日集中度标记={sum(r[23] in ('BOTH', 'NXT_DAY_CONCENTRATION') for r in scenario_rows)}只。",
     f"交叉分组：{dict(cross_flags)}；详见combined_only_bidirectional_20d.csv。",
     "正负1%、3%、5%情景只对已经观察到的NXT成交额缩放，不是对真实误差的推断。",
     "特别注意：这24只原本全部达标，上调情景不能发现原本未达标但因NXT漏报而被误排除的股票。",
