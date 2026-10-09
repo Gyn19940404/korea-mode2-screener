@@ -51,6 +51,8 @@ stats = Counter()
 threshold = 50_000_000_000
 exact_complete = Counter()
 krx_proven = Counter()
+complete_krx_pass = 0
+boundary_rows = []
 for code in codes:
     h = history.get(code, {})
     kdays = sum(d in h for d in window)
@@ -75,6 +77,12 @@ for code in codes:
     observed_sum = sum(k + (n if n is not None else 0) for k, n in h.values())
     observed_lower_bound_avg = observed_sum // 20 if kdays == 20 else None
     complete_avg = observed_lower_bound_avg if kdays == 20 and ndays == 20 else None
+    if complete_avg is not None and krx_avg >= threshold:
+        complete_krx_pass += 1
+    if kdays == 20 and (krx_avg >= threshold or (complete_avg is not None and complete_avg >= threshold)):
+        boundary_rows.append([code, coverage, bound, krx_avg, "" if complete_avg is None else complete_avg,
+                              "" if complete_avg is None else complete_avg - threshold,
+                              "KRX_LOWER_BOUND_PASS" if krx_avg >= threshold else "COMBINED_ONLY_PASS"])
     if complete_avg is not None:
         exact_complete["PASS" if complete_avg >= threshold else "FAIL"] += 1
     if kdays == 20 and krx_avg >= threshold:
@@ -98,6 +106,12 @@ with (OUT / "eligibility_coverage_20d.csv").open("w", encoding="utf-8-sig", newl
                 "turnover_observation_basis"])
     w.writerows(rows)
 
+with (OUT / "turnover_pass_boundary_20d.csv").open("w", encoding="utf-8-sig", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["code", "nxt_coverage", "krx_bound", "krx_avg20_won",
+                "combined_observed_avg20_won", "combined_minus_threshold_won", "pass_basis"])
+    w.writerows(sorted(boundary_rows, key=lambda r: (r[6], r[0])))
+
 with (OUT / "historical_only_codes.csv").open("w", encoding="utf-8-sig", newline="") as f:
     w = csv.writer(f)
     w.writerow(["code", "all_240d_observed_days", "first_observed_date", "last_observed_date", "recent_20d_observed_days", "interpretation"])
@@ -119,6 +133,8 @@ report = [
 ]
 for (coverage, bound), n in sorted(stats.items()):
     report.append(f"- {coverage} / {bound}: {n}")
+if complete_krx_pass > exact_complete["PASS"] or complete_krx_pass > sum(krx_proven.values()):
+    raise SystemExit("Invalid overlap: KRX pass must imply combined pass when records complete")
 if sum(stats.values()) != len(rows):
     raise SystemExit("Coverage category count does not equal stock universe")
 report += [
@@ -126,6 +142,9 @@ report += [
     "## 独立成交额计算交叉检查",
     f"20日KRX与NXT都有记录：门槛达标{exact_complete['PASS']}只；不达标{exact_complete['FAIL']}只。",
     "这里的完整仅指成交额记录覆盖，不证明逐日NXT交易资格或市场口径已被权威核准。",
+    f"交集校验：完整记录且KRX单市场达标={complete_krx_pass}；完整记录且仅合并后达标={exact_complete['PASS'] - complete_krx_pass}。",
+    f"并集校验：完整记录合并达标或KRX单独达标={exact_complete['PASS'] + sum(krx_proven.values()) - complete_krx_pass}。",
+    "逐股边界证据见turnover_pass_boundary_20d.csv；不能把交集重复计入候选股票数。",
     f"KRX单市场已达标股票合计：{sum(krx_proven.values())}只；按NXT记录覆盖分布：{dict(krx_proven)}。",
     "对于缺少NXT记录的股票，只计算已观察成交额的保守下界，不补零，也不推断精确综合均值。",
     "",
