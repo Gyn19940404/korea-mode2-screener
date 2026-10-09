@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Independent FinanceDataReader historical volume comparison; diagnostic only."""
-import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -23,28 +22,37 @@ lines = [
     "",
     "本报告仅作诊断；FDR数据来源和KRX/NXT/Toss统计口径可能不同，不自动修改正式网页。",
     "",
-    "| 股票 | FDR成交量 | KRX官方量 | KRX+NXT量 | Toss截图量 | FDR-KRX | FDR-综合 |",
-    "|---|---:|---:|---:|---:|---:|---:|",
+    "| 股票 | FDR默认 | FDR NAVER | FDR KRX | 官方KRX | 官方NXT | Toss | 默认-KRX | FDR KRX-官方KRX |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
 ]
 errors = []
+def read_volume(symbol, code):
+    frame = fdr.DataReader(symbol, DATE, END)
+    if frame is None or frame.empty:
+        raise ValueError("empty dataframe")
+    dated = frame.loc[frame.index.strftime("%Y-%m-%d") == DATE]
+    if dated.empty:
+        raise ValueError("requested date missing")
+    return int(dated.iloc[-1]["Volume"])
+
 for code, (name, krx, nxt, toss) in STOCKS.items():
-    try:
-        frame = fdr.DataReader(code, DATE, END)
-        if frame is None or frame.empty:
-            raise ValueError("returned empty dataframe")
-        dated = frame.loc[frame.index.strftime("%Y-%m-%d") == DATE]
-        if dated.empty:
-            raise ValueError("requested trading date missing")
-        volume = int(dated.iloc[-1]["Volume"])
-        lines.append(f"| {name} ({code}) | {volume:,} | {krx:,} | {krx+nxt:,} | {toss:,} | {volume-krx:+,} | {volume-krx-nxt:+,} |")
-    except Exception as exc:
-        errors.append(f"{code}: {type(exc).__name__}: {exc}")
-        lines.append(f"| {name} ({code}) | 读取失败 | {krx:,} | {krx+nxt:,} | {toss:,} | - | - |")
+    vals = {}
+    for label, symbol in [("default", code), ("NAVER", f"NAVER:{code}"), ("KRX", f"KRX:{code}")]:
+        try:
+            vals[label] = read_volume(symbol, code)
+        except Exception as exc:
+            vals[label] = None
+            errors.append(f"{code} {label}: {type(exc).__name__}: {exc}")
+    def fmt(x):
+        return f"{x:,}" if x is not None else "失败"
+    def diff(x, y):
+        return f"{x-y:+,}" if x is not None else "-"
+    lines.append(f"| {name} ({code}) | {fmt(vals['default'])} | {fmt(vals['NAVER'])} | {fmt(vals['KRX'])} | {krx:,} | {nxt:,} | {toss:,} | {diff(vals['default'], krx)} | {diff(vals['KRX'], krx)} |")
 lines.extend(["", f"成功：{len(STOCKS)-len(errors)}/{len(STOCKS)}"])
 if errors:
     lines.extend(["", "## 失败详情", *[f"- {e}" for e in errors]])
 lines.append("")
-lines.append("判读：与KRX数值接近不等于官方独立来源；与Toss接近也不证明统计口径一致。")
+lines.append("判读：FDR KRX和FDR NAVER是否可用取决于安装版本及上游接口。数值差异不能直接证明盘前/盘后遗漏；需取得按交易时段拆分的官方成交量才能归因。")
 Path("fdr_comparison_report.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
 print("\n".join(lines))
 if errors:
