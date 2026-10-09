@@ -16,6 +16,11 @@ def read(path):
         return list(csv.DictReader(f))
 
 raw = read(SOURCE)
+# The threshold universe includes historical-only codes absent from the latest 20-day slice.
+# Rebuild it from this exact downloaded snapshot rather than mixing run artifacts.
+all_history = defaultdict(set)
+for record in raw:
+    all_history[record["code"]].add(record["date"].replace("-", ""))
 dates = sorted({r["date"].replace("-", "") for r in raw})
 if len(dates) != 240:
     raise SystemExit(f"Expected 240 KRX sessions, got {len(dates)}")
@@ -36,7 +41,11 @@ for r in raw:
 
 prior_path = ROOT / "turnover_evidence_20d" / "stock_evidence.csv"
 prior = {r["code"]: r for r in read(prior_path)} if prior_path.exists() else {}
-codes = sorted(set(history) | set(prior))
+codes = sorted(set(all_history) | set(history) | set(prior))
+recent_only = sorted(set(history) - set(all_history))
+historic_only = sorted(set(all_history) - set(history))
+if recent_only:
+    raise SystemExit(f"Unexpected recent-only codes: {recent_only[:10]}")
 rows = []
 stats = Counter()
 for code in codes:
@@ -72,9 +81,18 @@ with (OUT / "eligibility_coverage_20d.csv").open("w", encoding="utf-8-sig", newl
                 "nxt_unreported_dates", "authoritative_eligibility_source"])
     w.writerows(rows)
 
+with (OUT / "historical_only_codes.csv").open("w", encoding="utf-8-sig", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["code", "all_240d_observed_days", "first_observed_date", "last_observed_date", "recent_20d_observed_days", "interpretation"])
+    for code in historic_only:
+        days = sorted(all_history[code])
+        w.writerow([code, len(days), days[0], days[-1], 0, "NO_RECENT_KRX_ROWS; cause not established"])
+
 report = [
     "# NXT资格与记录缺失：独立诊断（不发布）",
     f"窗口：{window[0]}～{window[-1]}；股票：{len(rows)}",
+    f"240日历史股票池：{len(all_history)}；最近20日出现：{len(history)}；仅历史出现：{len(historic_only)}。",
+    "仅历史出现的股票见historical_only_codes.csv；不能据此判断退市、停牌或代码变更。",
     "重要：NXT成交记录出现过，不足以证明该股在窗口内每一天均具交易资格。",
     "重要：NXT成交记录缺失，不能证明该股不具资格、停牌或当日零成交。",
     "因此资格字段统一为NOT_ESTABLISHED，等待独立权威逐日资格/状态清单。",
@@ -84,6 +102,8 @@ report = [
 ]
 for (coverage, bound), n in sorted(stats.items()):
     report.append(f"- {coverage} / {bound}: {n}")
+if sum(stats.values()) != len(rows):
+    raise SystemExit("Coverage category count does not equal stock universe")
 report += [
     "",
     "## 下一步所需独立证据",
