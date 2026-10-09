@@ -1,0 +1,28 @@
+name: KRX NAVER volume and price comparison
+on:
+  workflow_dispatch:
+    inputs:
+      trade_date:
+        description: "Historical trading day YYYYMMDD"
+        required: true
+        default: "20261008"
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Compare official KRX and NAVER history
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          TRADE_DATE: ${{ inputs.trade_date }}
+        run: python scripts/krx_naver_compare.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: krx-naver-comparison
+          path: .data_cache/krx_naver_comparison.json
+          if-no-files-found: ignore
