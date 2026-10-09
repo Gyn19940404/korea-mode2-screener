@@ -1,0 +1,41 @@
+name: NXT 240日成交额采集审计（独立运行）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  nxt-240d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install selenium
+      - name: Download last successful KRX 240d artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name krx-240d-official-turnover --dir krx_240d_official
+          test -f krx_240d_official/manifest.json
+      - name: Syntax check
+        run: python -m py_compile scripts/nxt_240d_history.py
+      - name: Extract NXT history and audit
+        run: python scripts/nxt_240d_history.py
+      - name: Publish audit summary
+        if: always()
+        run: |
+          if [ -f nxt_240d_official/audit_report.md ]; then cat nxt_240d_official/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload audit and data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nxt-240d-official-turnover
+          path: nxt_240d_official/
+          if-no-files-found: warn
