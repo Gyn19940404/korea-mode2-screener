@@ -186,6 +186,58 @@ with (OUT / "historical_only_codes.csv").open("w", encoding="utf-8-sig", newline
         days = sorted(all_history[code])
         w.writerow([code, len(days), days[0], days[-1], 0, "NO_RECENT_KRX_ROWS; cause not established"])
 
+# Stage 21: two-sided threshold sensitivity and independent risk-flag intersection.
+# This is a scenario analysis of observed turnover, NOT an estimate of reporting errors.
+scenario_rows = []
+cross_flags = Counter()
+for code, krx_avg, combined_avg, nxt_avg, margin, ndays, kdays in combined_only_rows:
+    ledger = daily_by_code[code]
+    ksum = sum(r[2] for r in ledger)
+    nsum = sum(r[3] for r in ledger)
+    stress = next(r for r in stress_rows if r[0] == code)
+    values = {}
+    for pct in (-5, -3, -1, 0, 1, 3, 5):
+        # Signed pct: positive means increasing observed NXT; negative means decreasing.
+        # Integer numerator retains precision until the final 20-day floor.
+        total_scaled = ksum * 100 + nsum * (100 + pct)
+        avg = total_scaled // 2000
+        values[pct] = avg
+    # Smallest NXT decrease needed to hit threshold, as a percent of observed NXT sum.
+    # Threshold crossing is strictly below 500eok, hence +1 won in the numerator.
+    buffer_pct = (100 * (ksum + nsum - threshold * 20 + 1) / nsum) if nsum else None
+    fragile_5 = values[-5] < threshold
+    concentrated = stress[13] == "REVIEW"
+    flag = ("BOTH" if fragile_5 and concentrated else
+            "HAIRCUT_5PCT" if fragile_5 else
+            "NXT_DAY_CONCENTRATION" if concentrated else "NEITHER")
+    cross_flags[flag] += 1
+    scenario_rows.append([
+        code, krx_avg, nxt_avg, combined_avg, margin,
+        round(nsum / (ksum + nsum) * 100, 4) if ksum + nsum else 0,
+        "" if buffer_pct is None else round(buffer_pct, 4),
+        *[values[p] for p in (-5, -3, -1, 0, 1, 3, 5)],
+        *["PASS" if values[p] >= threshold else "FAIL" for p in (-5, -3, -1, 0, 1, 3, 5)],
+        stress[11], stress[12], flag, "OBSERVED_COMPLETE_20D_NOT_ELIGIBILITY_VERIFIED"
+    ])
+    if values[0] != combined_avg:
+        raise SystemExit("Bidirectional baseline mismatch: " + code)
+    if [values[-1], values[-3], values[-5]] != stress[5:8]:
+        raise SystemExit("Prior haircut scenario mismatch: " + code)
+if len(scenario_rows) != len(combined_only_rows) or sum(cross_flags.values()) != len(scenario_rows):
+    raise SystemExit("Scenario partition mismatch")
+with (OUT / "combined_only_bidirectional_20d.csv").open("w", encoding="utf-8-sig", newline="") as f:
+    w = csv.writer(f)
+    w.writerow([
+        "code", "krx_avg20_won", "nxt_avg20_won", "observed_combined_avg20_won",
+        "margin_above_500eok_won", "nxt_share_of_combined_pct",
+        "nxt_haircut_to_fail_pct_approx",
+        *[f"nxt_{p:+d}pct_avg20_won" for p in (-5, -3, -1, 0, 1, 3, 5)],
+        *[f"nxt_{p:+d}pct_status" for p in (-5, -3, -1, 0, 1, 3, 5)],
+        "largest_nxt_day_share_pct", "top3_nxt_days_share_pct",
+        "cross_risk_flag", "data_scope"
+    ])
+    w.writerows(sorted(scenario_rows, key=lambda r: (r[4], r[0])))
+
 report = [
     "# NXT资格与记录缺失：独立诊断（不发布）",
     f"窗口：{window[0]}～{window[-1]}；股票：{len(rows)}",
@@ -228,6 +280,14 @@ report += [
     f"NXT最大单日贡献占20日NXT总额至少25%的股票={sum(r[13] == 'REVIEW' for r in stress_rows)}只；仅作异常复核标记，不代表数据错误。",
     "完整逐股结果见combined_only_stress_20d.csv，按门槛余量从小到大排序。",
     "压力测试证明门槛敏感性，不证明NXT资格、缺失日为零或官方综合成交额口径。",
+    "",
+    "## 第二十一阶段：双向敏感性与风险交集（不发布）",
+    f"24只合并后达标股：5%下调跌破门槛={sum(r[16] == 'FAIL' for r in scenario_rows)}只；NXT单日集中度标记={sum(r[21] in ('BOTH', 'NXT_DAY_CONCENTRATION') for r in scenario_rows)}只。",
+    f"交叉分组：{dict(cross_flags)}；详见combined_only_bidirectional_20d.csv。",
+    "正负1%、3%、5%情景只对已经观察到的NXT成交额缩放，不是对真实误差的推断。",
+    "特别注意：这24只原本全部达标，上调情景不能发现原本未达标但因NXT漏报而被误排除的股票。",
+    "若要检查假阴性，必须另行审计KRX单独未达标且NXT缺失/不完整的股票；不能凭空补入成交额。",
+    "门槛余量、NXT合计贡献占比、单日集中度和风险交集都按股票代码输出；不据此直接修改正式候选池。",
     "",
     "## 下一步所需独立证据",
     "需要带日期、股票代码和交易资格/停牌状态的权威NXT清单，以及成交列表缺行是否代表零成交的官方定义。",
