@@ -1,0 +1,34 @@
+name: 模式2默认筛选条件差异诊断（不发布）
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  filter-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download three-state audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name mode2-turnover-gate-test --dir mode2_turnover_gate_test
+          test -f mode2_turnover_gate_test/mode2_turnover_gate.csv
+      - name: Compare website default conditions
+        run: |
+          python -m py_compile scripts/mode2_filter_diagnostic.py
+          python scripts/mode2_filter_diagnostic.py
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f mode2_filter_diagnostic/audit_report.md ]; then cat mode2_filter_diagnostic/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mode2-filter-diagnostic
+          path: mode2_filter_diagnostic/
+          if-no-files-found: warn
