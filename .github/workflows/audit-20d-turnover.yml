@@ -1,0 +1,35 @@
+name: 综合成交额20日覆盖审计（不发布）
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  audit-20d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Fetch latest merged official history artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download --repo "${{ github.repository }}" --name krx-nxt-240d-merge-audit --dir merged_240d_audit
+          test -f merged_240d_audit/krx_nxt_daily_turnover.csv
+      - name: Syntax validation
+        run: python -m py_compile scripts/audit_20d_turnover.py
+      - name: Audit 20-session turnover coverage
+        run: python scripts/audit_20d_turnover.py
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f turnover_20d_audit/audit_report.md ]; then cat turnover_20d_audit/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: turnover-20d-coverage-audit
+          path: turnover_20d_audit/
+          if-no-files-found: warn
