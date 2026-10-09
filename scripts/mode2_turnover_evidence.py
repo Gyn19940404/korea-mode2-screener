@@ -28,7 +28,8 @@ missing_in_daily=sorted(set(p)-set(h))
 missing_in_gate=sorted(set(h)-set(p))
 print(f"Universe diagnostic: gate={len(p)}, daily={len(h)}, missing_in_daily={len(missing_in_daily)}, missing_in_gate={len(missing_in_gate)}")
 rows=[];daily=[];counts=Counter()
-for c,history in sorted(h.items()):
+for c in sorted(set(p)|set(h)):
+    history=h.get(c,{})
     km=[d for d in window if d not in history]
     nm=[d for d in window if d not in history or history[d][1] is None]
     kd=20-len(km);nd=20-len(nm)
@@ -63,5 +64,7 @@ report += ["NXT缺失保持空值，不视作零。","网站字段尚未核对�
 (O/"audit_report.md").write_text("\n".join(report)+"\n",encoding="utf-8")
 print("\n".join(report))
 print(f"Universe discrepancies: missing_in_daily={len(missing_in_daily)}, missing_in_gate={len(missing_in_gate)}")
-if missing_in_daily or missing_in_gate:
-    raise SystemExit("Universe mismatch: see universe_discrepancy.csv artifact")
+if missing_in_gate:
+    raise SystemExit("Unexpected codes in daily evidence: see universe_discrepancy.csv")
+if missing_in_daily:
+    print("NOTE: historic-only codes included with 0/20 KRX days and UNKNOWN status; not inferred as delisted or zero turnover")
