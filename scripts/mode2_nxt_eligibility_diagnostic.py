@@ -86,7 +86,7 @@ for code in codes:
                               "" if complete_avg is None else complete_avg - threshold,
                               "KRX_LOWER_BOUND_PASS" if krx_avg >= threshold else "COMBINED_ONLY_PASS"])
     if complete_avg is not None and complete_avg >= threshold and krx_avg < threshold:
-        combined_only_rows.append([code, krx_avg, complete_avg, complete_avg - krx_avg,
+        combined_only_rows.append([code, krx_avg, complete_avg, sum(h[d][1] for d in window) // 20,
                                    complete_avg - threshold, ndays, kdays])
         for day in window:
             k, n = h[day]
