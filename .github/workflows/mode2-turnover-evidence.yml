@@ -33,13 +33,20 @@ jobs:
           manifest = {"provenance": "threshold regenerated in this workflow from the same merged daily CSV", "files": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}
           Path("turnover_evidence_20d/source_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
           PY
+      - name: Stage 22 false-negative boundary audit
+        run: |
+          python -m py_compile scripts/mode2_false_negative_audit.py
+          python scripts/mode2_false_negative_audit.py
       - name: Summary
         if: always()
         run: |
           if [ -f turnover_evidence_20d/audit_report.md ]; then cat turnover_evidence_20d/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f false_negative_audit_20d/audit_report.md ]; then cat false_negative_audit_20d/audit_report.md >> "$GITHUB_STEP_SUMMARY"; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mode2-20d-stock-evidence
-          path: turnover_evidence_20d/
+          path: |
+            turnover_evidence_20d/
+            false_negative_audit_20d/
           if-no-files-found: warn
