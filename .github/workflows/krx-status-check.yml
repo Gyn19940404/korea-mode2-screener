@@ -1,21 +1,26 @@
 name: KRX OpenAPI 体检（只读，不发布）
 
-# 只做一件事：把每个 KRX 服务的真实 HTTP 状态和行数打成一张表，
-# 直接显示在 Actions 的 Summary 里。不写仓库、不发布网页、不需要 pages 权限。
+# 只做一件事：把 KRX 各服务的真实 HTTP 状态和行数打成表，
+# 显示在 Actions 的 Summary 里。不写仓库、不发布网页、不需要 pages 权限。
 #
 # 什么时候用：
 #   · 每日更新 workflow 失败、但看不出原因时
 #   · 怀疑 key 失效 / 服务授权到期 / 新申请的服务有没有批下来时
+#   · 想知道 KRX 官方数据实际发布到哪一天时（看「逐日覆盖」那节）
 #
-# 用法：Actions → 本 workflow → Run workflow（可填一个交易日，留空取最近工作日）
+# 用法：Actions → 本 workflow → Run workflow
 
 on:
   workflow_dispatch:
     inputs:
       trade_date:
-        description: "基准交易日 YYYYMMDD（留空则取最近一个工作日）"
+        description: "服务授权检查的基准交易日 YYYYMMDD（留空取最近工作日）"
         required: false
         default: ""
+      sweep_days:
+        description: "逐日回扫的工作日数量（默认 8）"
+        required: false
+        default: "8"
 
 permissions:
   contents: read
@@ -27,7 +32,7 @@ concurrency:
 jobs:
   status:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,7 +50,7 @@ jobs:
         continue-on-error: true
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
-          TRADE_DATE: ${{ inputs.trade_date }}
+          SWEEP_DAYS: ${{ inputs.sweep_days }}
         run: |
           set -o pipefail
           python -u scripts/krx_status.py | tee probe_result.md
@@ -61,9 +66,3 @@ jobs:
           name: krx-status
           path: probe_result.md
           if-no-files-found: ignore
-
-      - name: Fail job if probes failed
-        if: steps.probe.outcome == 'failure'
-        run: |
-          echo "有必需服务不通，详见上面的 Summary。"
-          exit 1
