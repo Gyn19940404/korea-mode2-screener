@@ -215,51 +215,69 @@ def fetch_quote(code):
 def fetch_krx_official_daily(target_date):
     """Official KRX daily volume/turnover by date; never use live NAVER as historical proxy."""
     import os
+    from krx_official import krx_daily
+
     key = os.environ.get('KRX_API_KEY', '').strip()
     if not key:
         raise RuntimeError('KRX_API_KEY secret missing: refuse to publish unverified daily turnover')
+
     day = target_date.replace('-', '')
     out = {}
+    diag_path = ROOT / 'krx_official_failure.json'
+
     for market, endpoint, minimum in (
         ('KOSPI', 'stk_bydd_trd', MIN_KOSPI),
         ('KOSDAQ', 'ksq_bydd_trd', MIN_KOSDAQ),
     ):
-        resp = requests.get(
-            'https://data-dbg.krx.co.kr/svc/apis/sto/' + endpoint,
-            params={'basDd': day},
-            headers={'AUTH_KEY': key, 'User-Agent': UA},
-            timeout=40,
+        # 认证/网络/HTTP 类失败：krx_daily 会写好诊断再抛出，这里不吞异常。
+        rows = krx_daily(
+            key, endpoint, day,
+            diagnostic_path=diag_path,
+            diagnostic_extra={'market': market, 'minimum_required': minimum},
         )
-        resp.raise_for_status()
-        payload = resp.json()
-        rows = payload.get('OutBlock_1', [])
-        if not isinstance(rows, list) or len(rows) < minimum:
+
+        if len(rows) < minimum:
+            # HTTP 通了但当天官方数据还没发布（或该日休市）
             diagnostic = {
-                'market': market, 'date': day, 'http_status': resp.status_code,
-                'response_keys': list(payload.keys()) if isinstance(payload, dict) else [],
-                'response_preview': str(payload)[:1800],
-                'rows': len(rows) if isinstance(rows, list) else -1,
+                'market': market, 'date': day, 'http_status': 200,
+                'response_keys': ['OutBlock_1'],
+                'response_preview': str(rows[:2])[:1800],
+                'rows': len(rows),
+                'minimum_required': minimum,
+                'verdict': 'KRX_DATASET_NOT_READY',
             }
-            (ROOT / 'krx_official_failure.json').write_text(
+            diag_path.write_text(
                 json.dumps(diagnostic, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(f'[KRX诊断] {json.dumps(diagnostic, ensure_ascii=False)[:400]}')
             raise RuntimeError(
-                f'KRX official {market} {day} incomplete: {diagnostic["rows"]}; '
-                f'HTTP={resp.status_code}; response={diagnostic["response_preview"][:700]}; '
-                '官方当日数据不可用，禁止以昨日或其他来源数据冒充当日')
+                f'KRX official {market} {day} incomplete: {len(rows)}/{minimum}; '
+                '官方当日数据尚未发布（T+1），禁止以昨日或其他来源数据冒充当日')
+
         for row in rows:
             code = str(row.get('ISU_CD', '')).strip()
             if len(code) != 6 or not code.isdigit():
                 continue
-            if str(row.get('BAS_DD', day)).strip() != day:
-                raise RuntimeError(f'KRX official date mismatch for {code}: {row.get("BAS_DD")}')
+            # 容忍 'YYYY-MM-DD' / 'YYYYMMDD'；字段缺失时按请求日期处理
+            got = str(row.get('BAS_DD', day)).replace('-', '').strip()
+            if got and got != day:
+                raise RuntimeError(f'KRX official date mismatch for {code}: {row.get("BAS_DD")} != {day}')
             out[code] = {
                 'volume': si(row.get('ACC_TRDVOL')),
                 'turnover': si(row.get('ACC_TRDVAL')),
                 'close': si(row.get('TDD_CLSPRC')),
             }
         print(f'[KRX Open API] {target_date} {market}: {len(rows)} records')
+
     if len(out) < MIN_TOTAL_STOCKS:
-        raise RuntimeError(f'KRX official coverage too small: {len(out)}')
+        raise RuntimeError(
+            f'KRX official coverage too small: {len(out)}/{MIN_TOTAL_STOCKS}')
+
+    # 成功路径：清掉上一次失败留下的诊断文件，避免误导后续排查
+    try:
+        if diag_path.exists():
+            diag_path.unlink()
+    except Exception:                                             # noqa: BLE001
+        pass
     return out
 
 
