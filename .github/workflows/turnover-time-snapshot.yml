@@ -52,7 +52,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
+          # --autostash：脚本刚生成的未提交改动会让 rebase 直接中止，
+          # 自动暂存再恢复，正是这个失败的原因。
+          git pull --rebase --autostash origin main
           # 诊断任务只允许提交自己的快照文件，绝不提交 stocks_data.js / index.html / update_data.py
           git add .data_cache/nxt_time_samples.json
           if git diff --cached --quiet; then
