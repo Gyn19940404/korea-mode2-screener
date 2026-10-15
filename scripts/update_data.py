@@ -906,10 +906,18 @@ def main():
     ref_hist = max(histories.values(), key=len)
     trade_dates35 = [r[0] for r in ref_hist[-35:]]
     past_dates35 = [d for d in trade_dates35 if d != latest_trade_date]
-    nxt_hist_diag = fetch_nxt_history_values(past_dates35)
-
-    # 先在未修改正式历史前做7股反推诊断。
-    write_turnover_diagnostic(histories, nxt_hist_diag, nxt_official, latest_trade_date)
+    # 日常发布只取实际需要的20日窗口；35日Toss研究不阻断正式发布。
+    trade_dates20 = [r[0] for r in ref_hist[-20:]]
+    past_dates20 = [d for d in trade_dates20 if d != latest_trade_date]
+    try:
+        nxt_hist_diag = fetch_nxt_history_values(past_dates20)
+    except Exception as exc:
+        print(f'[NXT历史非致命故障] {type(exc).__name__}: {exc}; 保留已验证缓存，不把缺失值当0')
+        nxt_hist_diag = {}
+    try:
+        write_turnover_diagnostic(histories, nxt_hist_diag, nxt_official, latest_trade_date)
+    except Exception as exc:
+        print(f'[Toss研究诊断跳过] {type(exc).__name__}: {exc}')
 
     # 正式逻辑保持V0.9.32：只把最近20交易日的NXT成交额补入非精确历史行。
     trade_dates20 = [r[0] for r in ref_hist[-20:]]
