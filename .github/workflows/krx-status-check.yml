@@ -1,0 +1,69 @@
+name: KRX OpenAPI 体检（只读，不发布）
+
+# 只做一件事：把每个 KRX 服务的真实 HTTP 状态和行数打成一张表，
+# 直接显示在 Actions 的 Summary 里。不写仓库、不发布网页、不需要 pages 权限。
+#
+# 什么时候用：
+#   · 每日更新 workflow 失败、但看不出原因时
+#   · 怀疑 key 失效 / 服务授权到期 / 新申请的服务有没有批下来时
+#
+# 用法：Actions → 本 workflow → Run workflow（可填一个交易日，留空取最近工作日）
+
+on:
+  workflow_dispatch:
+    inputs:
+      trade_date:
+        description: "基准交易日 YYYYMMDD（留空则取最近一个工作日）"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: krx-status-check
+  cancel-in-progress: false
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Probe KRX OpenAPI
+        id: probe
+        continue-on-error: true
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          TRADE_DATE: ${{ inputs.trade_date }}
+        run: |
+          set -o pipefail
+          python -u scripts/krx_status.py | tee probe_result.md
+
+      - name: Write to job summary
+        if: always()
+        run: cat probe_result.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: krx-status
+          path: probe_result.md
+          if-no-files-found: ignore
+
+      - name: Fail job if probes failed
+        if: steps.probe.outcome == 'failure'
+        run: |
+          echo "有必需服务不通，详见上面的 Summary。"
+          exit 1
