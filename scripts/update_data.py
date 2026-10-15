@@ -231,9 +231,21 @@ def fetch_krx_official_daily(target_date):
             timeout=40,
         )
         resp.raise_for_status()
-        rows = resp.json().get('OutBlock_1', [])
+        payload = resp.json()
+        rows = payload.get('OutBlock_1', [])
         if not isinstance(rows, list) or len(rows) < minimum:
-            raise RuntimeError(f'KRX official {market} {day} incomplete: {len(rows) if isinstance(rows,list) else 0}')
+            diagnostic = {
+                'market': market, 'date': day, 'http_status': resp.status_code,
+                'response_keys': list(payload.keys()) if isinstance(payload, dict) else [],
+                'response_preview': str(payload)[:1800],
+                'rows': len(rows) if isinstance(rows, list) else -1,
+            }
+            (ROOT / 'krx_official_failure.json').write_text(
+                json.dumps(diagnostic, ensure_ascii=False, indent=2), encoding='utf-8')
+            raise RuntimeError(
+                f'KRX official {market} {day} incomplete: {diagnostic["rows"]}; '
+                f'HTTP={resp.status_code}; response={diagnostic["response_preview"][:700]}; '
+                '官方当日数据不可用，禁止以昨日或其他来源数据冒充当日')
         for row in rows:
             code = str(row.get('ISU_CD', '')).strip()
             if len(code) != 6 or not code.isdigit():
