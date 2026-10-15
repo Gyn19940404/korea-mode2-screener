@@ -1,16 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-V0.9.57 NAVER fchart 当日复盘修复版
+V0.9.59 两段式发布（当晚可复盘 + 官方口径次日覆盖）
 - 历史K线：FinanceDataReader + NAVER（日线，最多240交易日）
 - 当日基准：KRX 用 NAVER polling；NXT 用 NXT 官方正規市场页面20:00最终数据
 - 当日成交额：NAVER polling 的综合成交额优先；NXT仅在NAVER值缺失时补充，避免重复相加
 - 当日市值：采用FDR/KRX当日市值，并把同一公司的优先股/种类股市值合并到普通股，贴近Toss公司市值口径
 - 当天涨幅：最终价相对前收盘价
 
-目的：修复V0.9.26：保留已对齐的NXT现价与Toss市值；补近20个交易日NXT历史成交额，并输出综合成交量；默认筛选排除优先股。
-历史旧数据的成交额仍可能是近似值；从本版本开始每天保存精确成交额与 NXT 最终价。
+【V0.9.59 关键变化：两段式发布】
+KRX OpenAPI 的日行情是 T+1 发布（实测：T 日当晚 20:30 甚至次日 00:43 都还是 0 行，
+到 T+1 白天才有数据）。原先的写法在「当天官方数据没出」时直接抛错，
+结果价格、形态、评分这些**当晚就已是事实**的东西也一起被扣住，站点长期停更。
+
+现在分开处理：
+  第一段（当晚 20:30 主运行）：用同日 NAVER + NXT 事实值发布。
+      复盘所需的收盘价/涨跌幅/形态/评分/成交量成交额全部齐备。
+      官方口径字段标记为「待确认」：每条 quote.krxDataSource = 'NAVER_NXT_PENDING_KRX'，
+      DATA_META.official_turnover_state = 'PENDING_KRX_T1'。
+  第二段（次日补偿运行）：KRX 官方数据发布后，同一脚本再次运行时
+      krxDataSource = 'KRX_OPEN_API'，成交额/成交量换成官方值，
+      DATA_META.official_turnover_state = 'CONFIRMED_KRX_OFFICIAL'，其余字段不动。
+
+注意：降级时用的是**同日** NAVER+NXT 实际值，不是拿昨天的官方数据冒充今天，
+所以两个口径之间没有跨日污染；差别只在 KRX 官方 vs NAVER 快照的口径差。
+若要恢复「没有官方口径就拒绝发布」的严格行为，设环境变量 REQUIRE_KRX_OFFICIAL=1。
 """
-import gzip, json, time, threading, re, csv
+import gzip, json, os, time, threading, re, csv
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -212,9 +227,16 @@ def fetch_quote(code):
     return None
 
 
-def fetch_krx_official_daily(target_date):
-    """Official KRX daily volume/turnover by date; never use live NAVER as historical proxy."""
-    import os
+def krx_official_core(target_date):
+    """
+    尝试取 KRX OpenAPI 官方 T+1 日行情。返回 (数据dict 或 None, 原因字符串)。
+
+    分两种失败，处理方式必须不同：
+      · 401/403（key 无效 / 服务未授权 / 已过期）→ 由 krx_official 抛 KrxAuthError，
+        这是配置故障，绝不静默降级，直接冒泡上去。
+      · HTTP 200 但 OutBlock_1 为空/行数不足 → 只是「该交易日的官方数据还没发布」，
+        返回 (None, 原因)，由调用方决定是降级发布还是拒绝发布。
+    """
     from krx_official import krx_daily
 
     key = os.environ.get('KRX_API_KEY', '').strip()
@@ -224,12 +246,12 @@ def fetch_krx_official_daily(target_date):
     day = target_date.replace('-', '')
     out = {}
     diag_path = ROOT / 'krx_official_failure.json'
+    not_ready = []
 
     for market, endpoint, minimum in (
         ('KOSPI', 'stk_bydd_trd', MIN_KOSPI),
         ('KOSDAQ', 'ksq_bydd_trd', MIN_KOSDAQ),
     ):
-        # 认证/网络/HTTP 类失败：krx_daily 会写好诊断再抛出，这里不吞异常。
         rows = krx_daily(
             key, endpoint, day,
             diagnostic_path=diag_path,
@@ -237,21 +259,8 @@ def fetch_krx_official_daily(target_date):
         )
 
         if len(rows) < minimum:
-            # HTTP 通了但当天官方数据还没发布（或该日休市）
-            diagnostic = {
-                'market': market, 'date': day, 'http_status': 200,
-                'response_keys': ['OutBlock_1'],
-                'response_preview': str(rows[:2])[:1800],
-                'rows': len(rows),
-                'minimum_required': minimum,
-                'verdict': 'KRX_DATASET_NOT_READY',
-            }
-            diag_path.write_text(
-                json.dumps(diagnostic, ensure_ascii=False, indent=2), encoding='utf-8')
-            print(f'[KRX诊断] {json.dumps(diagnostic, ensure_ascii=False)[:400]}')
-            raise RuntimeError(
-                f'KRX official {market} {day} incomplete: {len(rows)}/{minimum}; '
-                '官方当日数据尚未发布（T+1），禁止以昨日或其他来源数据冒充当日')
+            not_ready.append(f'{market} {len(rows)}/{minimum}')
+            continue
 
         for row in rows:
             code = str(row.get('ISU_CD', '')).strip()
@@ -268,17 +277,45 @@ def fetch_krx_official_daily(target_date):
             }
         print(f'[KRX Open API] {target_date} {market}: {len(rows)} records')
 
-    if len(out) < MIN_TOTAL_STOCKS:
-        raise RuntimeError(
-            f'KRX official coverage too small: {len(out)}/{MIN_TOTAL_STOCKS}')
+    if out and len(out) >= MIN_TOTAL_STOCKS:
+        # 成功路径：清掉上一次失败留下的诊断文件，避免误导后续排查
+        try:
+            if diag_path.exists():
+                diag_path.unlink()
+        except Exception:                                         # noqa: BLE001
+            pass
+        return out, ''
 
-    # 成功路径：清掉上一次失败留下的诊断文件，避免误导后续排查
+    # ---- 官方数据尚未发布（HTTP 通了，但当天/该日还没有内容）----
+    reason = '; '.join(not_ready) or f'total {len(out)}/{MIN_TOTAL_STOCKS}'
+    diagnostic = {
+        'market': 'ALL', 'date': day, 'http_status': 200,
+        'response_keys': ['OutBlock_1'],
+        'rows': len(out),
+        'minimum_required': MIN_TOTAL_STOCKS,
+        'not_ready': not_ready,
+        'verdict': 'KRX_DATASET_NOT_READY',
+    }
     try:
-        if diag_path.exists():
-            diag_path.unlink()
-    except Exception:                                             # noqa: BLE001
-        pass
-    return out
+        diag_path.write_text(json.dumps(diagnostic, ensure_ascii=False, indent=2),
+                             encoding='utf-8')
+    except Exception as exc:                                      # noqa: BLE001
+        print(f'[KRX诊断] 写文件失败: {exc}')
+    print(f'[KRX诊断] {json.dumps(diagnostic, ensure_ascii=False)[:400]}')
+    return None, reason
+
+
+def fetch_krx_official_daily(target_date):
+    """
+    严格模式：官方数据没发布就抛错。
+    供 REQUIRE_KRX_OFFICIAL=1 时使用，保留原先「没有官方口径就不发布」的行为。
+    """
+    data, reason = krx_official_core(target_date)
+    if data is None:
+        raise RuntimeError(
+            f'KRX official {target_date} incomplete: {reason}; '
+            '官方当日数据尚未发布（T+1），REQUIRE_KRX_OFFICIAL=1 要求只发官方口径')
+    return data
 
 
 def fetch_nxt_official(target_date):
@@ -910,24 +947,54 @@ def main():
         print(f'[V0.9.48当日校验] 今日未确认完整交易数据 -> 保留最近交易日={latest_trade_date}')
         nxt_official = fetch_nxt_official(latest_trade_date)
 
-    # Use official KRX dated trading data, not the current NAVER polling snapshot.
-    # Keep NXT final price logic unchanged. Never mix historical KRX with current-day NAVER.
-    krx_official = fetch_krx_official_daily(latest_trade_date)
-    matched_krx = 0
-    for code, q in quotes.items():
-        official = krx_official.get(code)
-        if not official:
-            continue
-        q['krxVolume'] = official['volume']
-        q['krxTurnoverWon'] = official['turnover']
-        q['volume'] = official['volume']
-        q['turnoverWon'] = official['turnover']
-        q['krxOfficialClose'] = official['close']
-        q['krxDataSource'] = 'KRX_OPEN_API'
-        matched_krx += 1
-    print(f'[KRX Open API] matched quote records: {matched_krx}/{len(quotes)}')
-    if matched_krx < MIN_TOTAL_STOCKS:
-        raise RuntimeError('Official KRX matched coverage insufficient; refuse publication')
+    # ------------------------------------------------------------------
+    # V0.9.59 两段式发布：KRX 官方口径拿不到时，不再连价格一起扣住。
+    #
+    # 第一段（当晚主运行）拿不到官方 T+1 数据 -> 用同日 NAVER + NXT 事实值发布，
+    #   复盘需要的收盘价/涨跌幅/形态/评分/成交量成交额全部照常；
+    #   仅把「官方口径」这件事标记为待确认，由第二段（次日补偿运行）覆盖。
+    # 401/403 仍然直接失败（那是 key / 授权配置故障，不能降级掩盖）。
+    # REQUIRE_KRX_OFFICIAL=1 可恢复旧的严格行为。
+    # ------------------------------------------------------------------
+    require_official = os.environ.get('REQUIRE_KRX_OFFICIAL', '0').strip() == '1'
+    krx_official, krx_reason = krx_official_core(latest_trade_date)
+
+    if krx_official is not None:
+        matched_krx = 0
+        for code, q in quotes.items():
+            official = krx_official.get(code)
+            if not official:
+                continue
+            q['krxVolume'] = official['volume']
+            q['krxTurnoverWon'] = official['turnover']
+            q['volume'] = official['volume']
+            q['turnoverWon'] = official['turnover']
+            q['krxOfficialClose'] = official['close']
+            q['krxDataSource'] = 'KRX_OPEN_API'
+            matched_krx += 1
+        print(f'[KRX Open API] matched quote records: {matched_krx}/{len(quotes)}')
+        if matched_krx < MIN_TOTAL_STOCKS:
+            raise RuntimeError('Official KRX matched coverage insufficient; refuse publication')
+        official_state = 'CONFIRMED_KRX_OFFICIAL'
+        official_note = f'{latest_trade_date} 成交额/成交量为 KRX 官方口径'
+    else:
+        if require_official:
+            raise RuntimeError(
+                f'KRX official {latest_trade_date} incomplete: {krx_reason}; '
+                'REQUIRE_KRX_OFFICIAL=1 要求只发官方口径，故拒绝发布')
+        print(
+            f'[KRX Open API] 官方 {latest_trade_date} 尚未发布（{krx_reason}）\n'
+            f'[两段式] 本次按同日 NAVER polling + NXT 事实值发布 —— 复盘可正常进行；\n'
+            f'[两段式] 官方口径标记为待确认，等 KRX 发布后由补偿运行自动覆盖。'
+        )
+        for q in quotes.values():
+            q['krxDataSource'] = 'NAVER_NXT_PENDING_KRX'
+        official_state = 'PENDING_KRX_T1'
+        official_note = (
+            f'{latest_trade_date} 成交额/成交量为 NAVER+NXT 同日口径，'
+            'KRX 官方 T+1 数据发布后会被覆盖；价格/涨跌幅/形态不受影响'
+        )
+
     for q in quotes.values():
         q['tradeDate'] = latest_trade_date
 
@@ -1118,6 +1185,9 @@ def main():
         raise RuntimeError(f'[V0.9.48] 今日已确认有交易，但最终数据日期仍为 {latest}，拒绝部署旧数据')
     print(f'[V0.9.48最终校验] 目标交易日={latest_trade_date} | 输出交易日={latest}')
     nxt_count = sum(1 for x in res if x.get('quoteSource') == 'NAVER_NXT')
+    krx_official_count = sum(1 for x in res if x.get('krxDataSource') == 'KRX_OPEN_API')
+    print(f'[V0.9.59口径状态] official_turnover_state={official_state} | '
+          f'KRX官方口径 {krx_official_count} 只 / NAVER+NXT口径 {len(res) - krx_official_count} 只')
     meta = {
         'latest_date': latest,
         'updated_at': datetime.now(timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M:%S KST'),
@@ -1126,9 +1196,14 @@ def main():
         'total_count': len(res),
         'history_days': HISTORY_DAYS,
         'source': 'NAVER fchart(history) + NAVER polling(KRX) + NXT official 20:00 close',
-        'update_mode': 'V0.9.57 NAVER fchart交易日强制校验 + 240日缓存增量 + KRX收盘 + NXT官方最终数据',
+        'update_mode': 'V0.9.59 两段式发布：当晚用同日NAVER+NXT发布（复盘可用），KRX官方T+1口径由补偿运行覆盖',
         'nxt_count': nxt_count,
         'snapshot_rule': 'V0.9.39成交额原始拆分诊断：正式筛选暂保持现有口径；额外保存krxTurnoverWon/nxtTurnoverWon/combinedTurnoverWon，并输出turnover_raw_diagnostic.csv用于与Toss逐日对表',
+        # ---- V0.9.59 两段式：口径状态（前端可据此显示「口径待确认」标记）----
+        'official_turnover_state': official_state,
+        'official_turnover_note': official_note,
+        'krx_official_quotes': krx_official_count,
+        'krx_official_pending_reason': krx_reason if krx_official is None else '',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
