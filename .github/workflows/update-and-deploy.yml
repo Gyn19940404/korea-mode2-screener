@@ -5,6 +5,8 @@ on:
   schedule:
     # UTC 11:30 = 韩国时间 20:30
     - cron: "30 11 * * 1-5"
+    # KST次日07:30再试：应对官方日行情晚于当晚发布的情况
+    - cron: "30 22 * * 0-4"
 
 permissions:
   contents: write
@@ -63,7 +65,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: daily-update-failure-log
-          path: daily_update_attempt.log
+          path: |
+            daily_update_attempt.log
+            krx_official_failure.json
           if-no-files-found: ignore
 
       - name: Validate stocks_data.js
