@@ -47,13 +47,24 @@ jobs:
           set -e
           for n in 1 2 3; do
             echo "正式数据抓取尝试 $n/3"
-            if python scripts/update_data.py; then
+            if python -u scripts/update_data.py > daily_update_attempt.log 2>&1; then
+              tail -n 35 daily_update_attempt.log
               exit 0
             fi
+            echo "=== 尝试 $n 失败：最后100行（包含Python异常栈） ==="
+            tail -n 100 daily_update_attempt.log
             if [ "$n" -lt 3 ]; then sleep 30; fi
           done
           echo "连续3次失败，停止发布，保留线上上一版正确数据"
           exit 1
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-update-failure-log
+          path: daily_update_attempt.log
+          if-no-files-found: ignore
 
       - name: Validate stocks_data.js
         run: |
