@@ -1,12 +1,19 @@
-name: 每日20点30分更新并发布网页 V0.9.48
+name: 每日更新并自动补偿重试 V0.9.58
 
 on:
   workflow_dispatch:
   schedule:
     # UTC 11:30 = 韩国时间 20:30
     - cron: "30 11 * * 1-5"
-    # KST次日07:30再试：应对官方日行情晚于当晚发布的情况
-    - cron: "30 22 * * 0-4"
+    # KRX官方日行情可能晚于NXT发布；分时段补偿，成功后正常发布。
+    # UTC 14:30 = 当日23:30 KST
+    - cron: "30 14 * * 1-5"
+    # UTC 17:30 = 次日02:30 KST
+    - cron: "30 17 * * 1-5"
+    # UTC 22:30 = 次日07:30 KST
+    - cron: "30 22 * * 1-5"
+    # UTC次日03:30 = 次日12:30 KST
+    - cron: "30 3 * * 2-6"
 
 permissions:
   contents: write
@@ -57,7 +64,7 @@ jobs:
             tail -n 100 daily_update_attempt.log
             if [ "$n" -lt 3 ]; then sleep 30; fi
           done
-          echo "连续3次失败，停止发布，保留线上上一版正确数据"
+          echo "连续3次失败：不发布错误数据；后续补偿计划会自动重试"
           exit 1
 
       - name: Upload failure diagnostics
@@ -131,4 +138,4 @@ jobs:
 
       - name: Final message
         run: |
-          echo "V0.9.48 完成：数据生成、提交、GitHub Pages发布在同一次任务中完成。"
+          echo "V0.9.58 完成：数据生成、提交、GitHub Pages发布在同一次任务中完成。"
