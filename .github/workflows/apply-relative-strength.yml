@@ -1,0 +1,35 @@
+name: apply-relative-strength
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-relative-strength.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download new scripts/update_data.py
+        run: curl -fsSL "https://cdn.omniultra.imagine.art/ceaed39a-684f-4da0-a1e9-ca9f91ee1c26/media/file/368ab7aaa5134377b1f5b8e5a86725c9/update_data.py" -o scripts/update_data.py
+
+      - name: Validate syntax
+        run: |
+          python3 -m py_compile scripts/update_data.py
+          md5sum scripts/update_data.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -q .github/workflows/apply-relative-strength.yml
+          git add scripts/update_data.py
+          git commit -m "feat(score): add index-relative strength (0-20) for KOSPI/KOSDAQ/KRX"
+          git push origin HEAD:main
