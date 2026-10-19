@@ -318,6 +318,55 @@ def fetch_krx_official_daily(target_date):
     return data
 
 
+def fetch_index_daily(target_date):
+    """拉取 KOSPI / KOSDAQ / KRX 三个指数的当日收盘与涨跌幅。
+
+    调用 krx_official.krx_index_daily，返回 {指数名: {name, close, change}}。
+    指数官方数据同为 T+1 发布：某指数当日尚未发布时只跳过该指数，不影响主流程。
+    """
+    from krx_official import krx_index_daily
+
+    key = os.environ.get('KRX_API_KEY', '').strip()
+    if not key:
+        print('[KRX指数] 缺少 KRX_API_KEY，跳过相对强弱计算')
+        return {}
+
+    day = str(target_date).replace('-', '')
+    out = {}
+    for name in ('KOSPI', 'KOSDAQ', 'KRX'):
+        try:
+            rows, status = krx_index_daily(
+                key, name, day,
+                diagnostic_path=ROOT / f'krx_index_diagnostic_{name.lower()}.json')
+        except Exception as exc:                                  # noqa: BLE001
+            print(f'[KRX指数] {name} {day} 获取失败: {type(exc).__name__}: {exc}')
+            continue
+
+        if not rows:
+            print(f'[KRX指数] {name} {day} 无数据（官方尚未发布）')
+            continue
+
+        row = rows[0]
+        close = sf(row.get('CLSPRC_IDX'))
+        if close <= 0:
+            print(f'[KRX指数] {name} {day} 收盘指数为空，跳过')
+            continue
+
+        raw_change = row.get('FLUC_RT')
+        if raw_change not in (None, ''):
+            change = sf(raw_change)
+        else:
+            # 没有 등락률 字段时，用 전일대비 反推前收
+            diff = sf(row.get('CMPPREVDD_IDX'))
+            prev = close - diff
+            change = (diff / prev * 100) if prev else 0.0
+
+        out[name] = {'name': name, 'close': close, 'change': round(change, 2)}
+        print(f'[KRX指数] {name} {day}: close={close:.2f} change={change:+.2f}%')
+
+    return out
+
+
 def fetch_nxt_official(target_date):
     """
     V0.9.17：不再点击 NXT 网页按钮。
@@ -732,13 +781,14 @@ def apply_snapshot(hist, quote):
     return out
 
 
-def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
+def build(code, name, market, listing_marcap, h, quote, toss_marcap=0, index=None):
     if len(h) < 20:
         return None
     h = apply_snapshot(h, quote)
     cs = [x[4] for x in h]
     p = cs[-1]
     prev = si(quote.get('prevClose')) if quote else cs[-2]
+    daychg = ((p / prev - 1) * 100) if prev else 0
 
     def ma(n):
         return sum(cs[-n:]) / n if len(cs) >= n else sum(cs) / len(cs)
@@ -766,7 +816,18 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
     pos = max(0, 25 - max(0, abs(dist) - .2) * 8)
     strength = min(18, max(0, week) * 1.5)
     liq = min(12, av / 50)
-    score = round(min(85, trend + pos + strength + liq + 5))
+
+    # 相对强弱：个股当日涨跌幅 - 对应指数当日涨跌幅 = 超额收益。
+    # 每 1% 超额给 2 分，以 10 分为中性起点，限制在 0~20。
+    # 指数数据缺失时保持中性 10 分，不改变原有趋势/位置/强度/流动性判断。
+    idx = index or {}
+    index_name = str(idx.get('name') or '')
+    index_price = sf(idx.get('close'))
+    index_change = sf(idx.get('change'))
+    excess = (daychg - index_change) if index_price > 0 else 0.0
+    relative = round(min(20, max(0, 10 + excess * 2)), 1)
+
+    score = round(min(100, trend + pos + strength + liq + relative + 5))
     grade = 'A' if score >= 80 else ('B' if score >= 68 else 'C')
 
     # Toss筛选器的市值不是简单用NXT最终价×普通股股数。
@@ -781,7 +842,12 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0):
         'listedShares': si(quote.get('listedShares')) if quote else 0,
         'priceTimesSharesTrillion': (p * si(quote.get('listedShares')) / 1e12) if quote and si(quote.get('listedShares')) else 0,
         'history': h, 'price': p,
-        'daychg': ((p / prev - 1) * 100) if prev else 0,
+        'daychg': daychg,
+        'indexName': index_name,
+        'indexPrice': index_price,
+        'indexChange': round(index_change, 2),
+        'excessReturn': round(excess, 2),
+        'relativeStrengthScore': relative,
         'week': week, 'turnover': turn, 'prevTurnover': prev_turn, 'avgturn': av, 'minTurn20': mn,
         'krxTurnoverWon': si(quote.get('krxTurnoverWon')) if quote else 0,
         'nxtTurnoverWon': si(quote.get('nxtValue')) if quote else 0,
@@ -831,6 +897,19 @@ def build_toss_marcap_map(u):
         is_class_share = (root != n)
         out[c] = mc if is_class_share else max(mc, groups.get(root, mc))
     return out
+
+def benchmark_for(market, quote, index_data):
+    """选择个股对应指数：KOSPI盘→KOSPI；KOSDAQ盘→KOSDAQ；NXT成交→KRX综合指数。"""
+    if not index_data:
+        return None
+    if quote and quote.get('useNxt'):
+        return index_data.get('KRX')
+    if market == 'KOSPI':
+        return index_data.get('KOSPI')
+    if market == 'KOSDAQ':
+        return index_data.get('KOSDAQ')
+    return index_data.get('KRX')
+
 
 def main():
     u = universe()
@@ -946,6 +1025,14 @@ def main():
         latest_trade_date = history_latest_date
         print(f'[V0.9.48当日校验] 今日未确认完整交易数据 -> 保留最近交易日={latest_trade_date}')
         nxt_official = fetch_nxt_official(latest_trade_date)
+
+    # 4) 指数相对强弱基准：KOSPI / KOSDAQ / KRX 当日收盘与涨跌幅
+    index_data = fetch_index_daily(latest_trade_date)
+    if index_data:
+        print('[相对强弱] 指数基准: ' + ' | '.join(
+            f"{k} {v['close']:.2f} ({v['change']:+.2f}%)" for k, v in index_data.items()))
+    else:
+        print(f'[相对强弱] {latest_trade_date} 无可用指数数据，全部按中性 10 分计算')
 
     # ------------------------------------------------------------------
     # V0.9.59 两段式发布：KRX 官方口径拿不到时，不再连价格一起扣住。
@@ -1172,7 +1259,9 @@ def main():
 
     res = []
     for c, n, m, mc in jobs:
-        x = build(c, n, m, mc, histories.get(c, []), quotes.get(c), toss_marcap_map.get(c, mc))
+        q = quotes.get(c)
+        x = build(c, n, m, mc, histories.get(c, []), q,
+                  toss_marcap_map.get(c, mc), benchmark_for(m, q, index_data))
         if x:
             res.append(x)
 
@@ -1194,6 +1283,13 @@ def main():
         'kospi_count': sum(x['market'] == 'KOSPI' for x in res),
         'kosdaq_count': sum(x['market'] == 'KOSDAQ' for x in res),
         'total_count': len(res),
+        # ---- 指数相对强弱基准（当日收盘 / 涨跌幅%）----
+        'kospi_close': sf((index_data.get('KOSPI') or {}).get('close')),
+        'kospi_change': sf((index_data.get('KOSPI') or {}).get('change')),
+        'kosdaq_close': sf((index_data.get('KOSDAQ') or {}).get('close')),
+        'kosdaq_change': sf((index_data.get('KOSDAQ') or {}).get('change')),
+        'krx_close': sf((index_data.get('KRX') or {}).get('close')),
+        'krx_change': sf((index_data.get('KRX') or {}).get('change')),
         'history_days': HISTORY_DAYS,
         'source': 'NAVER fchart(history) + NAVER polling(KRX) + NXT official 20:00 close',
         'update_mode': 'V0.9.59 两段式发布：当晚用同日NAVER+NXT发布（复盘可用），KRX官方T+1口径由补偿运行覆盖',
@@ -1213,3 +1309,11 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
+
+
