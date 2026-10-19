@@ -41,34 +41,18 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 
 MARKETS = (("KOSPI", "sto", "stk_bydd_trd"), ("KOSDAQ", "sto", "ksq_bydd_trd"))
 
-# 指数服务的端点名 KRX 没有公开的稳定文档，因此每个指数按顺序探测。
-# (category, endpoint) —— category 是 URL 里的服务分组，endpoint 是具体服务名。
+# 指数服务的端点名：(category, endpoint) —— category 是 URL 里的服务分组，
+# endpoint 是具体服务名。三个指数都走 idx 分组下的 *_dd_trd 服务。
 INDEX_ENDPOINTS = {
-    "KOSPI": (
-        ("idx", "kospi_bydd_trd"),
-        ("idx", "kospi_trd"),
-        ("idx", "idx_kospi_bydd_trd"),
-        ("idx", "idx_kospi_trd"),
-        ("sto", "idx_kospi_bydd_trd"),
-        ("sto", "kospi_bydd_trd"),
-    ),
-    "KOSDAQ": (
-        ("idx", "kosdaq_bydd_trd"),
-        ("idx", "kosdaq_trd"),
-        ("idx", "idx_kosdaq_bydd_trd"),
-        ("idx", "idx_kosdaq_trd"),
-        ("sto", "idx_kosdaq_bydd_trd"),
-        ("sto", "kosdaq_bydd_trd"),
-    ),
-    "KRX": (
-        ("idx", "krx_bydd_trd"),
-        ("idx", "krx_trd"),
-        ("idx", "idx_krx_bydd_trd"),
-        ("idx", "idx_krx_trd"),
-        ("idx", "all_trd"),
-        ("sto", "idx_krx_bydd_trd"),
-    ),
+    "KOSPI":  (("idx", "kospi_dd_trd"),),
+    "KOSDAQ": (("idx", "kosdaq_dd_trd"),),
+    "KRX":    (("idx", "krx_dd_trd"),),
 }
+
+# 指数响应的有效数据行必须带收盘指数（CLSPRC_IDX）。
+# KRX 的 idx 响应首行常常是汇总/分组行，CLSPRC_IDX 为空，不能当作指数行情。
+INDEX_VALUE_FIELD = "CLSPRC_IDX"
+INDEX_NAME_FIELD = "IDX_NM"
 
 
 # 认证失败：key 无效 / 已过期 / 该服务未申请（KRX 三者返回同一个 401）
@@ -79,6 +63,13 @@ class KrxAuthError(RuntimeError):
 # 当日官方数据尚未发布：HTTP 200 但 OutBlock_1 为空或条数不足
 class KrxDataNotReady(RuntimeError):
     pass
+
+
+# HTTP 层失败：带上真实状态码，方便上层诊断记录（而不是记成 null）
+class KrxHttpError(RuntimeError):
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def krx_daily(api_key: str, endpoint: str, bas_dd: str, *,
@@ -136,13 +127,15 @@ def krx_daily(api_key: str, endpoint: str, bas_dd: str, *,
                 continue
             _write_diag(diagnostic_path, endpoint, bas_dd, resp, resp.text,
                         diagnostic_extra)
-            raise RuntimeError(f'KRX {endpoint} {bas_dd} 反复失败：{last_err}')
+            raise KrxHttpError(f'KRX {endpoint} {bas_dd} 反复失败：{last_err}',
+                               resp.status_code)
 
         if resp.status_code != 200:
             _write_diag(diagnostic_path, endpoint, bas_dd, resp, resp.text,
                         diagnostic_extra)
-            raise RuntimeError(
-                f'KRX {endpoint} {bas_dd}: HTTP {resp.status_code} {resp.text[:160]}')
+            raise KrxHttpError(
+                f'KRX {endpoint} {bas_dd}: HTTP {resp.status_code} {resp.text[:160]}',
+                resp.status_code)
 
         # ---- 200：解析 ----
         try:
@@ -150,13 +143,16 @@ def krx_daily(api_key: str, endpoint: str, bas_dd: str, *,
         except Exception:                                          # noqa: BLE001
             _write_diag(diagnostic_path, endpoint, bas_dd, resp, resp.text,
                         diagnostic_extra)
-            raise RuntimeError(f'KRX {endpoint} {bas_dd}: 响应不是 JSON：{resp.text[:160]}')
+            raise KrxHttpError(
+                f'KRX {endpoint} {bas_dd}: 响应不是 JSON：{resp.text[:160]}',
+                resp.status_code)
 
         if isinstance(payload, dict) and 'respMsg' in payload and 'OutBlock_1' not in payload:
             _write_diag(diagnostic_path, endpoint, bas_dd, resp,
                         json.dumps(payload)[:1800], diagnostic_extra)
-            raise RuntimeError(
-                f'KRX {endpoint} {bas_dd}: {payload.get("respCode")} {payload.get("respMsg")}')
+            raise KrxHttpError(
+                f'KRX {endpoint} {bas_dd}: {payload.get("respCode")} {payload.get("respMsg")}',
+                resp.status_code)
 
         rows = payload.get('OutBlock_1', []) if isinstance(payload, dict) else []
         return rows if isinstance(rows, list) else []
@@ -178,7 +174,7 @@ def krx_index_daily(api_key: str, index_name: str, bas_dd: str, *,
           'index': 'KOSPI',
           'date': '20261014',
           'ok': True,
-          'endpoint': 'idx/kospi_bydd_trd',
+          'endpoint': 'idx/kospi_dd_trd',
           'rows': 1,
           'attempted': [{'endpoint':..., 'http_status':..., 'ok':..., 'error':...}, ...]
       }
@@ -210,19 +206,24 @@ def krx_index_daily(api_key: str, index_name: str, bas_dd: str, *,
             auth_error = exc
             break
         except Exception as exc:                                  # noqa: BLE001
-            attempts.append({'endpoint': label, 'http_status': None,
+            attempts.append({'endpoint': label,
+                             'http_status': getattr(exc, 'status_code', None),
                              'ok': False, 'rows': 0,
                              'error': f'{type(exc).__name__}: {exc}'[:300]})
             continue
 
-        attempts.append({'endpoint': label, 'http_status': 200, 'ok': True,
-                         'rows': len(rows), 'error': None})
-        if rows:
+        # 只保留真正的指数行情行：汇总/分组行的 CLSPRC_IDX 为空，先剔除；
+        # 再按 IDX_NM 对齐到目标指数，避免拿到同响应里的其他指数。
+        picked = _select_index_rows(rows, name)
+
+        attempts.append({'endpoint': label, 'http_status': 200, 'ok': bool(picked),
+                         'rows': len(picked), 'error': None})
+        if picked:
             status = {'index': name, 'date': bas_dd, 'ok': True,
-                      'endpoint': label, 'rows': len(rows),
+                      'endpoint': label, 'rows': len(picked),
                       'attempted': attempts}
             _write_index_diag(diagnostic_path, status, diagnostic_extra)
-            return rows, status
+            return picked, status
 
     status = {'index': name, 'date': bas_dd, 'ok': False,
               'endpoint': None, 'rows': 0, 'attempted': attempts}
@@ -231,6 +232,39 @@ def krx_index_daily(api_key: str, index_name: str, bas_dd: str, *,
     if auth_error is not None:
         raise auth_error
     return [], status
+
+
+def _select_index_rows(rows, name: str) -> list:
+    """
+    从 idx 响应里挑出目标指数的真实行情行。
+
+    1) 丢掉 CLSPRC_IDX 为空的行 —— 首行通常是汇总/分组行，没有收盘指数；
+    2) 有 IDX_NM 时优先精确匹配指数名（'KOSPI' / 'KOSDAQ' / 'KRX'），
+       其次匹配以该名字开头的（如 'KOSPI 200'），都不中则保留全部有效行。
+    """
+    if not isinstance(rows, list):
+        return []
+
+    valid = [
+        r for r in rows
+        if isinstance(r, dict)
+        and str(r.get(INDEX_VALUE_FIELD) or '').strip()
+    ]
+    if not valid:
+        return []
+
+    named = [r for r in valid if str(r.get(INDEX_NAME_FIELD) or '').strip()]
+    if not named:
+        return valid
+
+    exact = [r for r in named
+             if str(r[INDEX_NAME_FIELD]).strip().upper() == name]
+    if exact:
+        return exact
+
+    prefixed = [r for r in named
+                if str(r[INDEX_NAME_FIELD]).strip().upper().startswith(name)]
+    return prefixed or named
 
 
 def _write_index_diag(path, status, extra):

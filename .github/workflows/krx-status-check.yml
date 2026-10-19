@@ -55,14 +55,33 @@ jobs:
           set -o pipefail
           python -u scripts/krx_status.py | tee probe_result.md
 
+      # 三个指数的端点名（idx/*_dd_trd）直接跑一遍，确认 200 且有有效行
+      - name: Probe index endpoints
+        continue-on-error: true
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+        run: |
+          set -o pipefail
+          DATE="${{ inputs.trade_date }}"
+          if [ -z "$DATE" ]; then DATE=$(TZ=Asia/Seoul date -d 'yesterday' +%Y%m%d); fi
+          python -u scripts/krx_official.py "$DATE" 2>&1 | tee index_probe_result.txt
+
       - name: Write to job summary
         if: always()
-        run: cat probe_result.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          cat probe_result.md >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '## 指数端点直连测试（scripts/krx_official.py）' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat index_probe_result.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload raw result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: krx-status
-          path: probe_result.md
+          path: |
+            probe_result.md
+            index_probe_result.txt
           if-no-files-found: ignore
