@@ -623,7 +623,7 @@ def merge_nxt_history_turnover(histories, nxt_hist, latest_date):
             d=row[0]
             if d == latest_date or d not in nxt_hist:
                 continue
-            precise = len(row)>=8 and si(row[7])==1
+            precise = len(row)>=8 and si(row[7]) in (1, 2)
             if precise:
                 continue
             nv=si(nxt_hist[d].get(code))
@@ -680,7 +680,7 @@ def write_turnover_diagnostic(histories, nxt_hist, nxt_official, latest_date):
         for row in h:
             d = str(row[0])
             stored = si(row[6]) if len(row) > 6 else 0
-            precise = len(row) >= 8 and si(row[7]) == 1
+            precise = len(row) >= 8 and si(row[7]) in (1, 2)
             nx = si((nxt_official.get(code) or {}).get('value')) if d == latest_date else si((nxt_hist.get(d) or {}).get(code))
 
             # 缓存中 precise=1 的行已经是当时保存的综合成交额，不再重复加NXT。
@@ -760,7 +760,7 @@ def apply_snapshot(hist, quote):
         lo = min(lows) if lows else price
         vol = si(quote.get('volume'))
         val = si(quote.get('turnoverWon'))
-        out = list(hist) + [[trade_date, op, hi, lo, price, vol, val, 1]]
+        out = list(hist) + [[trade_date, op, hi, lo, price, vol, val, 1 if quote.get('krxDataSource') == 'KRX_OPEN_API' else 2]]
         return out[-HISTORY_DAYS:]
 
     row = list(hist[-1])
@@ -776,7 +776,7 @@ def apply_snapshot(hist, quote):
     if lows: row[3] = min(lows)
     if si(quote.get('volume')) > 0: row[5] = si(quote['volume'])
     if si(quote.get('turnoverWon')) > 0: row[6] = si(quote['turnoverWon'])
-    row[7] = 1
+    row[7] = 1 if quote.get('krxDataSource') == 'KRX_OPEN_API' else 2
     out = list(hist); out[-1] = row
     return out
 
