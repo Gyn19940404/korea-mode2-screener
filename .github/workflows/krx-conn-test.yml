@@ -1,0 +1,74 @@
+name: krx index connectivity test (temporary)
+
+# 临时只读测试：验证 KRX OpenAPI 指数服务（KOSPI/KOSDAQ/KRX）连通性。
+# 不修改仓库数据，不输出密钥，只输出探测结果与诊断 JSON。
+
+on:
+  workflow_dispatch:
+    inputs:
+      trade_date:
+        description: "目标交易日 basDd (YYYYMMDD)"
+        required: true
+        default: "20261015"
+  push:
+    branches: [ main ]
+    paths:
+      - .github/workflows/krx-conn-test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install --quiet requests
+
+      - name: Verify secret is wired (value never printed)
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+        run: |
+          if [ -z "$KRX_API_KEY" ]; then
+            echo "SECRET_MISSING: repository secret KRX_API_KEY is not available to this job"
+            exit 3
+          fi
+          echo "SECRET_PRESENT: length=${#KRX_API_KEY}"
+
+      - name: Probe three indices
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          TARGET_DATE: ${{ github.event.inputs.trade_date || '20261015' }}
+        run: |
+          echo "=== target date: $TARGET_DATE ==="
+          set +e
+          python -u scripts/krx_official.py "$TARGET_DATE" 2>&1 | tee probe_output.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "PROBE_EXIT_CODE=$code"
+          echo "--- diagnostic files ---"
+          for f in krx_index_diagnostic_*.json; do
+            [ -e "$f" ] || continue
+            echo "### $f"
+            cat "$f"
+            echo
+          done
+          echo "PROBE_EXIT_CODE=$code" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: krx-conn-test
+          path: |
+            probe_output.txt
+            krx_index_diagnostic_*.json
+          if-no-files-found: warn
