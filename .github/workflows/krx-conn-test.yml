@@ -1,7 +1,7 @@
 name: krx index connectivity test (temporary)
 
 # 临时只读测试：验证 KRX OpenAPI 指数服务（KOSPI/KOSDAQ/KRX）连通性。
-# 不修改仓库数据，不输出密钥，只输出探测结果与诊断 JSON。
+# 不修改 main 上的数据，不输出密钥；探测结果提交到 diag/krx-conn 分支供读取。
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ on:
       - .github/workflows/krx-conn-test.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
@@ -53,6 +53,7 @@ jobs:
           code=${PIPESTATUS[0]}
           set -e
           echo "PROBE_EXIT_CODE=$code"
+          echo "PROBE_EXIT_CODE=$code" > probe_exit_code.txt
           echo "--- diagnostic files ---"
           for f in krx_index_diagnostic_*.json; do
             [ -e "$f" ] || continue
@@ -60,15 +61,16 @@ jobs:
             cat "$f"
             echo
           done
-          echo "PROBE_EXIT_CODE=$code" >> "$GITHUB_STEP_SUMMARY"
-          exit 0
 
-      - name: Upload diagnostics
+      - name: Publish result to diag branch
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: krx-conn-test
-          path: |
-            probe_output.txt
-            krx_index_diagnostic_*.json
-          if-no-files-found: warn
+        run: |
+          mkdir -p .diag
+          cp probe_output.txt probe_exit_code.txt .diag/ 2>/dev/null || true
+          cp krx_index_diagnostic_*.json .diag/ 2>/dev/null || true
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b diag/krx-conn
+          git add -f .diag
+          git commit -m "diag: krx index connectivity result ($(date -u +%FT%TZ))" || echo "nothing to commit"
+          git push --force origin diag/krx-conn
