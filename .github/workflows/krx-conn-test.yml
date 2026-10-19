@@ -42,7 +42,7 @@ jobs:
           fi
           echo "SECRET_PRESENT: length=${#KRX_API_KEY}"
 
-      - name: Probe three indices
+      - name: Probe three indices (as coded in scripts/krx_official.py)
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           TARGET_DATE: ${{ github.event.inputs.trade_date || '20261015' }}
@@ -54,13 +54,67 @@ jobs:
           set -e
           echo "PROBE_EXIT_CODE=$code"
           echo "PROBE_EXIT_CODE=$code" > probe_exit_code.txt
-          echo "--- diagnostic files ---"
-          for f in krx_index_diagnostic_*.json; do
-            [ -e "$f" ] || continue
-            echo "### $f"
-            cat "$f"
-            echo
-          done
+
+      - name: Probe canonical idx endpoints
+        env:
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          TARGET_DATE: ${{ github.event.inputs.trade_date || '20261015' }}
+        run: |
+          mkdir -p .diag
+          python - <<'PY'
+          import json, os
+          import requests
+
+          key = os.environ["KRX_API_KEY"]
+          d = os.environ.get("TARGET_DATE", "20261015")
+          BASE = "https://data-dbg.krx.co.kr/svc/apis"
+          targets = [
+              ("sto", "stk_bydd_trd"),   # 已知可用端点：用来判别 key 是否有效
+              ("sto", "ksq_bydd_trd"),
+              ("idx", "kospi_dd_trd"),
+              ("idx", "kosdaq_dd_trd"),
+              ("idx", "krx_dd_trd"),
+          ]
+          out = []
+          for cat, ep in targets:
+              label = f"{cat}/{ep}"
+              dates = [d] if d == "20261016" else [d, "20261016"]
+              item = {"endpoint": label, "attempts": []}
+              for bd in dates:
+                  rec = {"date": bd}
+                  try:
+                      r = requests.get(f"{BASE}/{cat}/{ep}",
+                                       params={"AUTH_KEY": key, "basDd": bd},
+                                       timeout=40)
+                      rec["http"] = r.status_code
+                      try:
+                          p = r.json()
+                      except Exception:
+                          rec["body_preview"] = r.text[:300]
+                          item["attempts"].append(rec)
+                          continue
+                      rows = p.get("OutBlock_1") if isinstance(p, dict) else None
+                      rec["respCode"] = p.get("respCode") if isinstance(p, dict) else None
+                      rec["respMsg"] = p.get("respMsg") if isinstance(p, dict) else None
+                      if isinstance(rows, list):
+                          rec["rows"] = len(rows)
+                          if rows:
+                              rec["field_count"] = len(rows[0])
+                              rec["sample_keys"] = list(rows[0].keys())
+                              rec["sample"] = rows[0]
+                      else:
+                          rec["body_preview"] = r.text[:300]
+                  except Exception as exc:
+                      rec["error"] = f"{type(exc).__name__}: {exc}"
+                  item["attempts"].append(rec)
+                  if rec.get("rows"):
+                      break
+              out.append(item)
+              print(json.dumps(item, ensure_ascii=False)[:900])
+
+          with open(".diag/idx_canonical.json", "w", encoding="utf-8") as fh:
+              json.dump(out, fh, ensure_ascii=False, indent=2)
+          PY
 
       - name: Publish result to diag branch
         if: always()
