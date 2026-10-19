@@ -294,8 +294,8 @@ def _write_diag(path, endpoint, bas_dd, resp, body, extra):
         'endpoint': endpoint,
         'date': bas_dd,
         'http_status': getattr(resp, 'status_code', None),
-        'attempted_url': getattr(resp, 'url', None),
-        'response_preview': (body or '')[:1800],
+        'attempted_url': (f'{BASE}/sto/{endpoint}' if endpoint in ('stk_bydd_trd', 'ksq_bydd_trd') else f'{BASE}/idx/{endpoint}'),
+        'response_preview': (body or '')[:1800].replace(str(__import__('os').environ.get('KRX_API_KEY', '') or '___NO_KEY___'), '[REDACTED]'),
     }
     if extra:
         diag.update(extra)
