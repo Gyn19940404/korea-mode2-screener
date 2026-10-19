@@ -277,7 +277,7 @@ def krx_official_core(target_date):
             }
         print(f'[KRX Open API] {target_date} {market}: {len(rows)} records')
 
-    if out and len(out) >= MIN_TOTAL_STOCKS:
+    if not not_ready and out and len(out) >= MIN_TOTAL_STOCKS:
         # 成功路径：清掉上一次失败留下的诊断文件，避免误导后续排查
         try:
             if diag_path.exists():
