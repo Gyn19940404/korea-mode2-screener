@@ -2190,6 +2190,152 @@
           "simpleSumWon": 13852652000
         }
       ]
+    },
+    {
+      "sampleTimeKST": "2026-10-26 10:06:05 KST",
+      "slot": "KRX收盘附近",
+      "stocks": [
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "047040",
+          "name": "대우건설",
+          "naverKrxPrice": 14230,
+          "naverKrxTurnoverWon": 10041599440,
+          "naverKrxVolume": 696181,
+          "nxtPrice": 0,
+          "nxtTurnoverWon": 0,
+          "nxtVolume": 0,
+          "simpleSumWon": 10041599440
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "105560",
+          "name": "KB금융",
+          "naverKrxPrice": 150100,
+          "naverKrxTurnoverWon": 27940659950,
+          "naverKrxVolume": 183985,
+          "nxtPrice": 151000,
+          "nxtTurnoverWon": 2063242400,
+          "nxtVolume": 13543,
+          "simpleSumWon": 30003902350
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "005930",
+          "name": "삼성전자",
+          "naverKrxPrice": 213250,
+          "naverKrxTurnoverWon": 815401898250,
+          "naverKrxVolume": 3814189,
+          "nxtPrice": 213500,
+          "nxtTurnoverWon": 553104425000,
+          "nxtVolume": 2572648,
+          "simpleSumWon": 1368506323250
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "000660",
+          "name": "SK하이닉스",
+          "naverKrxPrice": 1284000,
+          "naverKrxTurnoverWon": 1037743519000,
+          "naverKrxVolume": 802864,
+          "nxtPrice": 1280000,
+          "nxtTurnoverWon": 818440824000,
+          "nxtVolume": 634772,
+          "simpleSumWon": 1856184343000
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "402340",
+          "name": "SK스퀘어",
+          "naverKrxPrice": 765000,
+          "naverKrxTurnoverWon": 110896496500,
+          "naverKrxVolume": 143717,
+          "nxtPrice": 766000,
+          "nxtTurnoverWon": 48994340500,
+          "nxtVolume": 63400,
+          "simpleSumWon": 159890837000
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "009150",
+          "name": "삼성전기",
+          "naverKrxPrice": 1120000,
+          "naverKrxTurnoverWon": 160448891000,
+          "naverKrxVolume": 143604,
+          "nxtPrice": 1122000,
+          "nxtTurnoverWon": 152144447000,
+          "nxtVolume": 136393,
+          "simpleSumWon": 312593338000
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "034020",
+          "name": "두산에너빌리티",
+          "naverKrxPrice": 57500,
+          "naverKrxTurnoverWon": 27127398600,
+          "naverKrxVolume": 465361,
+          "nxtPrice": 58200,
+          "nxtTurnoverWon": 25358496550,
+          "nxtVolume": 433028,
+          "simpleSumWon": 52485895150
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "006400",
+          "name": "삼성SDI",
+          "naverKrxPrice": 481500,
+          "naverKrxTurnoverWon": 79255386750,
+          "naverKrxVolume": 163836,
+          "nxtPrice": 489000,
+          "nxtTurnoverWon": 75804208000,
+          "nxtVolume": 156462,
+          "simpleSumWon": 155059594750
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "042700",
+          "name": "한미반도체",
+          "naverKrxPrice": 186300,
+          "naverKrxTurnoverWon": 24654987700,
+          "naverKrxVolume": 131398,
+          "nxtPrice": 187800,
+          "nxtTurnoverWon": 13971313400,
+          "nxtVolume": 74130,
+          "simpleSumWon": 38626301100
+        },
+        {
+          "tradeDate": "2026-10-26",
+          "sampleTimeKST": "2026-10-26 10:06:05 KST",
+          "slot": "KRX收盘附近",
+          "code": "028300",
+          "name": "HLB",
+          "naverKrxPrice": 40200,
+          "naverKrxTurnoverWon": 5095935700,
+          "naverKrxVolume": 125769,
+          "nxtPrice": 40350,
+          "nxtTurnoverWon": 3680657200,
+          "nxtVolume": 89781,
+          "simpleSumWon": 8776592900
+        }
+      ]
     }
   ]
 }
