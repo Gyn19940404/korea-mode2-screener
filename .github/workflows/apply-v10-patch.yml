@@ -1,0 +1,38 @@
+name: apply-v10-patch
+
+# 一次性补丁工作流：把本地改好的三个文件写入仓库后自删。
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-v10-patch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and verify files
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://cdn.omniultra.imagine.art/ceaed39a-684f-4da0-a1e9-ca9f91ee1c26/media/file/51ed32f80eb14614b34312d832234b2e/sector_map.py" -o scripts/sector_map.py
+          curl -fsSL "https://cdn.omniultra.imagine.art/ceaed39a-684f-4da0-a1e9-ca9f91ee1c26/media/file/31e6ca2164724424bd23caaa6bb3ceee/update_data.py" -o scripts/update_data.py
+          curl -fsSL "https://cdn.omniultra.imagine.art/ceaed39a-684f-4da0-a1e9-ca9f91ee1c26/media/file/daeeaf416cae4e92aae22c8fbb569b30/index.html" -o index.html
+          ls -l scripts/sector_map.py scripts/update_data.py index.html
+          python3 -m py_compile scripts/sector_map.py scripts/update_data.py
+          echo "sizes ok"
+          wc -c scripts/sector_map.py scripts/update_data.py index.html
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/sector_map.py scripts/update_data.py index.html
+          git rm -q .github/workflows/apply-v10-patch.yml
+          git commit -m "feat(sector+index): 真实板块映射 + 指数同日兜底 + 基准修正 + 前端超额收益列"
+          git push
