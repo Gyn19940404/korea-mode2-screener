@@ -321,50 +321,85 @@ def fetch_krx_official_daily(target_date):
 def fetch_index_daily(target_date):
     """拉取 KOSPI / KOSDAQ / KRX 三个指数的当日收盘与涨跌幅。
 
-    调用 krx_official.krx_index_daily，返回 {指数名: {name, close, change}}。
-    指数官方数据同为 T+1 发布：某指数当日尚未发布时只跳过该指数，不影响主流程。
+    两级来源，与成交量/成交额的两段式思路一致：
+      1) KRX OpenAPI（官方口径）—— 但日行情是 T+1 发布，当晚主运行基本拿不到；
+      2) NAVER polling（同日实时）—— 兜底，保证当晚复盘就有指数基准可用。
+
+    返回 {指数名: {name, close, change, source}}，source ∈ KRX_OPEN_API / NAVER_SAME_DAY。
+    两级都没有的指数直接跳过，不阻断发布。
     """
-    from krx_official import krx_index_daily
-
-    key = os.environ.get('KRX_API_KEY', '').strip()
-    if not key:
-        print('[KRX指数] 缺少 KRX_API_KEY，跳过相对强弱计算')
-        return {}
-
     day = str(target_date).replace('-', '')
     out = {}
-    for name in ('KOSPI', 'KOSDAQ', 'KRX'):
+
+    # ---- 一级：KRX 官方 ----
+    key = os.environ.get('KRX_API_KEY', '').strip()
+    krx_index_daily = None
+    if key:
         try:
-            rows, status = krx_index_daily(
-                key, name, day,
-                diagnostic_path=ROOT / f'krx_index_diagnostic_{name.lower()}.json')
+            from krx_official import krx_index_daily as _k
+            krx_index_daily = _k
         except Exception as exc:                                  # noqa: BLE001
-            print(f'[KRX指数] {name} {day} 获取失败: {type(exc).__name__}: {exc}')
+            print(f'[KRX指数] 模块导入失败: {exc}')
+    else:
+        print('[KRX指数] 缺少 KRX_API_KEY，跳过官方指数，直接用 NAVER 兜底')
+
+    if krx_index_daily:
+        for name in ('KOSPI', 'KOSDAQ', 'KRX'):
+            try:
+                rows, status = krx_index_daily(
+                    key, name, day,
+                    diagnostic_path=ROOT / f'krx_index_diagnostic_{name.lower()}.json')
+            except Exception as exc:                              # noqa: BLE001
+                print(f'[KRX指数] {name} {day} 获取失败: {type(exc).__name__}: {exc}')
+                continue
+            if not rows:
+                print(f'[KRX指数] {name} {day} 无数据（官方 T+1 尚未发布）')
+                continue
+            row = rows[0]
+            close = sf(row.get('CLSPRC_IDX'))
+            if close <= 0:
+                continue
+            raw_change = row.get('FLUC_RT')
+            if raw_change not in (None, ''):
+                change = sf(raw_change)
+            else:
+                diff = sf(row.get('CMPPREVDD_IDX'))
+                prev = close - diff
+                change = (diff / prev * 100) if prev else 0.0
+            out[name] = {'name': name, 'close': round(close, 2),
+                         'change': round(change, 2), 'source': 'KRX_OPEN_API'}
+            print(f'[KRX指数] {name} {day}: close={close:.2f} change={change:+.2f}%')
+
+    # ---- 二级：NAVER polling 同日兜底 ----
+    # KRX 综合指数在 NAVER 没有对应代码，因此只兜底 KOSPI / KOSDAQ 两个主基准。
+    for name in ('KOSPI', 'KOSDAQ'):
+        if name in out:
             continue
-
-        if not rows:
-            print(f'[KRX指数] {name} {day} 无数据（官方尚未发布）')
-            continue
-
-        row = rows[0]
-        close = sf(row.get('CLSPRC_IDX'))
-        if close <= 0:
-            print(f'[KRX指数] {name} {day} 收盘指数为空，跳过')
-            continue
-
-        raw_change = row.get('FLUC_RT')
-        if raw_change not in (None, ''):
-            change = sf(raw_change)
-        else:
-            # 没有 등락률 字段时，用 전일대비 反推前收
-            diff = sf(row.get('CMPPREVDD_IDX'))
-            prev = close - diff
-            change = (diff / prev * 100) if prev else 0.0
-
-        out[name] = {'name': name, 'close': close, 'change': round(change, 2)}
-        print(f'[KRX指数] {name} {day}: close={close:.2f} change={change:+.2f}%')
+        try:
+            r = session().get(
+                'https://polling.finance.naver.com/api/realtime'
+                f'?query=SERVICE_INDEX:{name}',
+                timeout=12)
+            r.raise_for_status()
+            areas = (r.json().get('result') or {}).get('areas') or []
+            datas = (areas[0].get('datas') if areas else None) or []
+            if not datas:
+                print(f'[NAVER指数] {name} 无数据')
+                continue
+            d = datas[0]
+            close = sf(d.get('nv')) / 100.0      # 接口里的指数点位放大了 100 倍
+            change = sf(d.get('cr'))
+            if close <= 0:
+                print(f'[NAVER指数] {name} 收盘为空')
+                continue
+            out[name] = {'name': name, 'close': round(close, 2),
+                         'change': round(change, 2), 'source': 'NAVER_SAME_DAY'}
+            print(f'[NAVER指数] {name} 同日: close={close:.2f} change={change:+.2f}%')
+        except Exception as exc:                                  # noqa: BLE001
+            print(f'[NAVER指数] {name} 获取失败: {type(exc).__name__}: {exc}')
 
     return out
+
 
 
 def fetch_nxt_official(target_date):
@@ -781,7 +816,18 @@ def apply_snapshot(hist, quote):
     return out
 
 
-def build(code, name, market, listing_marcap, h, quote, toss_marcap=0, index=None):
+def sector_rise_ratio(info):
+    """板块内上涨家数占比（0~1），无数据返回 None。"""
+    info = info or {}
+    rise = sf(info.get('riseCount'))
+    fall = sf(info.get('fallCount'))
+    steady = sf(info.get('steadyCount'))
+    total = rise + fall + steady
+    return round(rise / total, 3) if total > 0 else None
+
+
+def build(code, name, market, listing_marcap, h, quote, toss_marcap=0, index=None,
+          sector='', sector_info=None):
     if len(h) < 20:
         return None
     h = apply_snapshot(h, quote)
@@ -835,7 +881,7 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0, index=Non
     marcap = si(toss_marcap) if si(toss_marcap) > 0 else si(listing_marcap)
 
     return {
-        'name': name, 'code': code, 'sector': '板块待接入', 'market': market,
+        'name': name, 'code': code, 'sector': sector or '未分类', 'market': market,
         'marketCapTrillion': marcap / 1e12 if marcap else 0,
         'ownMarketCapTrillion': si(listing_marcap) / 1e12 if si(listing_marcap) else 0,
         'companyMarketCapTrillion': si(toss_marcap) / 1e12 if si(toss_marcap) else 0,
@@ -858,7 +904,11 @@ def build(code, name, market, listing_marcap, h, quote, toss_marcap=0, index=Non
         'isPreferred': bool(re.search(r'(?:\d+우B|\d+우|우B|우)$', str(name or '').strip())),
         'streak': streak, 'ma5': m5, 'ma10': m10, 'ma20': m20,
         'ma30': m30, 'ma60': m60, 'ma120': m120,
-        'dist': dist, 'rank': 0, 'sectorPower': 0,
+        'dist': dist, 'rank': 0,
+        'sectorPower': round(sf((sector_info or {}).get('changeRate')), 2),
+        'sectorChange': round(sf((sector_info or {}).get('changeRate')), 2),
+        'sectorRiseRatio': sector_rise_ratio(sector_info),
+        'sectorSize': si((sector_info or {}).get('totalCount')),
         'score': score, 'grade': grade,
         'quoteSource': 'NAVER_NXT' if quote and quote.get('useNxt') else 'NAVER_KRX',
         'prevClose': prev,
@@ -899,16 +949,20 @@ def build_toss_marcap_map(u):
     return out
 
 def benchmark_for(market, quote, index_data):
-    """选择个股对应指数：KOSPI盘→KOSPI；KOSDAQ盘→KOSDAQ；NXT成交→KRX综合指数。"""
+    """选择个股对应指数基准。
+
+    基准只看**上市市场**：KOSPI 股用 KOSPI，KOSDAQ 股用 KOSDAQ。
+    不能用「是否在 NXT 成交」来选基准 —— 2026-09-14 新制后几乎全部股票都有 NXT
+    成交，那样会让整个 KOSPI 市场都拿 KRX 综合指数做基准，相对强弱失去意义。
+    """
     if not index_data:
         return None
-    if quote and quote.get('useNxt'):
-        return index_data.get('KRX')
-    if market == 'KOSPI':
-        return index_data.get('KOSPI')
-    if market == 'KOSDAQ':
-        return index_data.get('KOSDAQ')
-    return index_data.get('KRX')
+    if market == 'KOSPI' and index_data.get('KOSPI'):
+        return index_data['KOSPI']
+    if market == 'KOSDAQ' and index_data.get('KOSDAQ'):
+        return index_data['KOSDAQ']
+    # 兜底顺序：KRX 综合 -> KOSPI -> KOSDAQ（只在前两者都缺失时用到）
+    return index_data.get('KRX') or index_data.get('KOSPI') or index_data.get('KOSDAQ')
 
 
 def main():
@@ -943,6 +997,18 @@ def main():
             pw.writerow([uc, un, um, typ, excluded, note])
     print('[V0.9.51股票池分类] ' + json.dumps(pool_counts, ensure_ascii=False))
     print(f'[V0.9.51股票池分类] 明细已生成: {pool_diag}')
+
+    # ---- 板块（업종）映射：NAVER 行业接口，缓存 7 天 ----
+    # 失败不影响发布，只退化成「未分类」。
+    try:
+        from sector_map import load_sector_map
+        sector_bundle = load_sector_map(CACHE_DIR / 'sector_map.json', max_age_days=7)
+    except Exception as exc:                                   # noqa: BLE001
+        print(f'[板块映射] 加载失败，板块显示为未分类: {type(exc).__name__}: {exc}')
+        sector_bundle = {'mapping': {}, 'meta': {}}
+    sector_map = sector_bundle.get('mapping') or {}
+    sector_meta = sector_bundle.get('meta') or {}
+    print(f'[板块映射] 已载入 {len(sector_map)} 只股票 / {len(sector_meta)} 个行业')
 
     toss_marcap_map = build_toss_marcap_map(u)
     print('Toss市值口径映射完成:', len(toss_marcap_map), '只')
@@ -1260,13 +1326,30 @@ def main():
     res = []
     for c, n, m, mc in jobs:
         q = quotes.get(c)
+        sec_entry = sector_map.get(c) or {}
+        sec_name = str(sec_entry.get('industry') or '')
+        sec_info = sector_meta.get(str(sec_entry.get('industryNo') or '')) or {}
         x = build(c, n, m, mc, histories.get(c, []), q,
-                  toss_marcap_map.get(c, mc), benchmark_for(m, q, index_data))
+                  toss_marcap_map.get(c, mc), benchmark_for(m, q, index_data),
+                  sector=sec_name, sector_info=sec_info)
         if x:
             res.append(x)
 
     if len(res) < MIN_TOTAL_STOCKS:
         raise RuntimeError(f'最终有效股票只有 {len(res)} 只，拒绝覆盖 stocks_data.js')
+
+    # ---- 相对强弱排名：同市场内超额收益的百分位（0~100，100 = 最抗跌/最强）----
+    # 说明：relativeStrengthScore 是「10 + 超额 × 2」并截断在 0~20，容易在高波动日
+    # 集体顶到 20 分；这里额外给一个百分位排名，前端可用来排序而不改变总分口径。
+    by_market = {}
+    for x in res:
+        by_market.setdefault(x.get('indexName') or x['market'], []).append(x)
+    for bucket in by_market.values():
+        ranked = sorted(bucket, key=lambda z: z.get('excessReturn') or 0)
+        n_ = len(ranked)
+        for i, x in enumerate(ranked):
+            x['relativeRank'] = round(i / (n_ - 1) * 100, 1) if n_ > 1 else 50.0
+    print(f'[相对强弱] 已为 {len(res)} 只股票计算同市场百分比排名')
 
     res.sort(key=lambda x: (x['market'], x['code']))
     latest = max(x['history'][-1][0] for x in res)
@@ -1300,6 +1383,14 @@ def main():
         'official_turnover_note': official_note,
         'krx_official_quotes': krx_official_count,
         'krx_official_pending_reason': krx_reason if krx_official is None else '',
+        # ---- 指数基准来源与板块 ----
+        'index_source': {k: v.get('source') for k, v in (index_data or {}).items()},
+        'index_available': sorted((index_data or {}).keys()),
+        'sector_mapped': len(sector_map),
+        'sector_industries': len(sector_meta),
+        'sector_coverage': round(
+            sum(1 for x in res if x.get('sector') not in ('未分类', '', None)) / max(1, len(res)), 3),
+        'score_scale': '100（趋势25+位置25+强度18+流动性12+相对强弱20+基础5）',
     }
     payload = 'window.DATA_META=' + json.dumps(meta, ensure_ascii=False, separators=(',', ':')) + ';\nwindow.STOCKS_DATA=' + json.dumps(res, ensure_ascii=False, separators=(',', ':')) + ';\n'
     TMP.write_text(payload, encoding='utf-8')
